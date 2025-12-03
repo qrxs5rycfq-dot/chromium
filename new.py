@@ -10432,18 +10432,44 @@ class Account:
                 required_consecutive_success = 2
                 last_state = None
                 stuck_count = 0
+                loading_stuck_count = 0  # Track stuck loading state
                 
                 while (asyncio.get_event_loop().time() - start_time) < max_wait_time:
                     current_time = asyncio.get_event_loop().time() - start_time
                     
                     print(f"   🔍 Strict check at {current_time:.1f}s...")
                     
+                    # ========== CHECK FOR SUSPENDED ACCOUNT FIRST ==========
+                    if await self._is_account_suspended(page):
+                        print("   🚫 Account suspended detected!")
+                        suspend_info = await self._handle_suspended_account(page)
+                        self.status = 5  # New status for suspended
+                        return False
+                    
                     # Check for loading state first
                     if await self._is_page_loading(page):
-                        print("   ⚠️ Page still loading, waiting...")
+                        loading_stuck_count += 1
+                        print(f"   ⚠️ Page still loading ({loading_stuck_count}/5)...")
                         consecutive_success_checks = 0
+                        
+                        # If stuck loading for too long, reload and re-enter
+                        if loading_stuck_count >= 5:
+                            print("   🔄 Loading stuck, attempting reload...")
+                            reload_success = await self._handle_stuck_loading(page, otp_code)
+                            if reload_success:
+                                loading_stuck_count = 0
+                                continue
+                            else:
+                                if retry_count < max_retries:
+                                    retry_count += 1
+                                    break
+                                else:
+                                    return False
+                        
                         await asyncio.sleep(3)
                         continue
+                    else:
+                        loading_stuck_count = 0  # Reset if not loading
                     
                     # ========== CHECK FOR STUCK STATE ==========
                     current_state = await self._get_page_state(page)
@@ -10452,13 +10478,19 @@ class Account:
                         print(f"   🚨 Stuck detection: {stuck_count}/3 (same state)")
                         
                         if stuck_count >= 3:
-                            print("   🔄 Page appears stuck, initiating retry...")
-                            if retry_count < max_retries:
-                                retry_count += 1
-                                break  # Break out of inner loop to retry
+                            print("   🔄 Page appears stuck, initiating reload with re-entry...")
+                            reload_success = await self._handle_stuck_loading(page, otp_code)
+                            if reload_success:
+                                stuck_count = 0
+                                last_state = None
+                                continue
                             else:
-                                print("   ❌ Max retries reached for stuck page")
-                                return False
+                                if retry_count < max_retries:
+                                    retry_count += 1
+                                    break  # Break out of inner loop to retry
+                                else:
+                                    print("   ❌ Max retries reached for stuck page")
+                                    return False
                     else:
                         stuck_count = 0
                         last_state = current_state
@@ -10470,9 +10502,13 @@ class Account:
                         result = await self._handle_human_confirmation(page)
                         if result:
                             print("   ✅ Human confirmation handled successfully")
-                            # After handling human confirmation, check if we're successful
-                            if await self._is_on_home_page(page):
+                            # After handling human confirmation, verify result
+                            post_result = await self._verify_post_otp_result(page)
+                            if post_result == 'success':
                                 return True
+                            elif post_result == 'suspended':
+                                self.status = 5
+                                return False
                         else:
                             print("   ❌ Failed to handle human confirmation")
                             if retry_count < max_retries:
@@ -10731,6 +10767,205 @@ class Account:
             logger.error(f"Error checking home page: {e}")
             return False
 
+    async def _is_account_suspended(self, page) -> bool:
+        """Check if account is suspended/disabled after OTP verification"""
+        try:
+            current_url = page.url.lower()
+            content = await page.content()
+            content_lower = content.lower()
+            
+            # URL patterns indicating suspension
+            suspend_url_patterns = [
+                'suspended',
+                'disabled',
+                'appeal',
+                'help/instagram',
+                'blocked',
+                'restriction'
+            ]
+            
+            if any(pattern in current_url for pattern in suspend_url_patterns):
+                print("   🚫 ACCOUNT SUSPENDED - URL pattern detected")
+                return True
+            
+            # Text indicators for suspended account
+            suspend_text_indicators = [
+                'account has been disabled',
+                'account has been suspended',
+                'account is temporarily locked',
+                'your account was disabled',
+                'we suspended your account',
+                'account may have been compromised',
+                'we\'ve disabled your account',
+                'account was removed',
+                'account is disabled',
+                'account suspended',
+                'account blocked',
+                'violates our terms',
+                'community guidelines',
+                'appeal this decision',
+                'request a review',
+                'akun anda telah dinonaktifkan',  # Indonesian
+                'akun ditangguhkan',
+                'akun diblokir'
+            ]
+            
+            for indicator in suspend_text_indicators:
+                if indicator in content_lower:
+                    print(f"   🚫 ACCOUNT SUSPENDED - Text indicator: '{indicator}'")
+                    return True
+            
+            # Check for specific suspended account page elements
+            suspend_selectors = [
+                'text=Account Disabled',
+                'text=Account Suspended',
+                'text=Appeal',
+                'button:has-text("Request Review")',
+                'button:has-text("Appeal")',
+                'a[href*="help.instagram.com"]'
+            ]
+            
+            for selector in suspend_selectors:
+                try:
+                    if await page.query_selector(selector):
+                        print(f"   🚫 ACCOUNT SUSPENDED - Selector found: {selector}")
+                        return True
+                except Exception:
+                    continue
+            
+            return False
+            
+        except Exception as e:
+            logger.error(f"Error checking suspend status: {e}")
+            return False
+
+    async def _handle_suspended_account(self, page) -> dict:
+        """Handle suspended account - return status and info"""
+        try:
+            result = {
+                'is_suspended': True,
+                'reason': 'Unknown',
+                'can_appeal': False,
+                'appeal_url': None
+            }
+            
+            content = await page.content()
+            content_lower = content.lower()
+            
+            # Try to extract suspension reason
+            reasons = {
+                'community guidelines': 'Violated community guidelines',
+                'terms of service': 'Violated terms of service',
+                'suspicious activity': 'Suspicious activity detected',
+                'spam': 'Detected as spam',
+                'compromised': 'Account may have been compromised',
+                'automated': 'Automated behavior detected'
+            }
+            
+            for keyword, reason in reasons.items():
+                if keyword in content_lower:
+                    result['reason'] = reason
+                    break
+            
+            # Check if appeal is possible
+            appeal_button = await page.query_selector('button:has-text("Appeal"), button:has-text("Request Review")')
+            if appeal_button:
+                result['can_appeal'] = True
+                
+            # Try to find appeal URL
+            appeal_link = await page.query_selector('a[href*="help.instagram.com"], a[href*="appeal"]')
+            if appeal_link:
+                result['appeal_url'] = await appeal_link.get_attribute('href')
+            
+            print(f"   🚫 Suspension details:")
+            print(f"      - Reason: {result['reason']}")
+            print(f"      - Can Appeal: {result['can_appeal']}")
+            if result['appeal_url']:
+                print(f"      - Appeal URL: {result['appeal_url']}")
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error handling suspended account: {e}")
+            return {'is_suspended': True, 'reason': str(e)}
+
+    async def _handle_stuck_loading(self, page, otp_code: str) -> bool:
+        """Handle stuck loading by reloading page and re-entering OTP code"""
+        try:
+            print("   🔄 Handling stuck loading - reloading page...")
+            
+            # Reload the page
+            await page.reload()
+            await asyncio.sleep(3)
+            
+            # Check if we're still on OTP page
+            otp_input = await page.query_selector('input[placeholder*="Confirmation Code" i], input[aria-label*="Confirmation Code" i]')
+            
+            if otp_input:
+                print("   📝 Re-entering OTP code after reload...")
+                await otp_input.click()
+                await asyncio.sleep(0.3)
+                await otp_input.fill("")
+                await asyncio.sleep(0.2)
+                await otp_input.type(otp_code, delay=80)
+                await asyncio.sleep(1)
+                
+                # Submit again
+                submit_btn = await page.query_selector('button:has-text("Continue"), button:has-text("Next"), button[type="submit"], button:has-text("Finish")')
+                if submit_btn:
+                    await submit_btn.click()
+                else:
+                    await page.keyboard.press('Enter')
+                
+                print("   ✅ OTP re-submitted after reload")
+                return True
+            else:
+                # Might have successfully navigated
+                if await self._is_on_home_page(page):
+                    return True
+                elif await self._is_account_suspended(page):
+                    return False
+                    
+            return False
+            
+        except Exception as e:
+            logger.error(f"Error handling stuck loading: {e}")
+            return False
+
+    async def _verify_post_otp_result(self, page) -> str:
+        """Verify the result after OTP - returns 'success', 'suspended', 'checkpoint', or 'unknown'"""
+        try:
+            await asyncio.sleep(2)
+            
+            # Check for success first (home page)
+            if await self._is_on_home_page(page):
+                print("   ✅ POST-OTP: Successfully on home page!")
+                return 'success'
+            
+            # Check for suspended account
+            if await self._is_account_suspended(page):
+                print("   🚫 POST-OTP: Account is suspended!")
+                return 'suspended'
+            
+            # Check for checkpoint
+            if await self._is_on_checkpoint_page(page):
+                print("   ⚠️ POST-OTP: Checkpoint detected!")
+                return 'checkpoint'
+            
+            # Check URL for other indications
+            current_url = page.url.lower()
+            
+            if 'instagram.com/' in current_url and 'accounts' not in current_url:
+                # Might be on a profile or other valid page
+                print("   ✅ POST-OTP: On valid Instagram page")
+                return 'success'
+            
+            return 'unknown'
+            
+        except Exception as e:
+            logger.error(f"Error verifying post-OTP result: {e}")
+            return 'unknown'
+
     async def _is_on_checkpoint_page(self, page) -> bool:
         """Check if we're on Instagram checkpoint/challenge page"""
         try:
@@ -10953,9 +11188,22 @@ class Account:
                     print("   ✅ Profile navigation found - definitely logged in!")
             except:
                 pass
+            
+            # Check for suspended even after success indicators
+            if await self._is_account_suspended(page):
+                print("   🚫 Account suspended after final verification!")
+                self.status = 5
+                return False
                 
         else:
             print("   ❌ FINAL VERIFICATION: Not enough success indicators")
+            
+            # Check if account is suspended
+            if await self._is_account_suspended(page):
+                print("   🚫 Account is suspended!")
+                self.status = 5
+                await self._handle_suspended_account(page)
+                return False
             
             # Debug info
             print(f"   🔍 Debug - URL contains 'instagram.com/': {'instagram.com/' in current_url}")
@@ -10979,7 +11227,8 @@ class Account:
             1: "✅ ACCOUNT CREATED & READY TO USE",
             2: "📱 OTP VERIFICATION REQUIRED", 
             3: "⚠️ OTP PROCESS FAILED - NEED MANUAL INTERVENTION",
-            4: "❌ CREATION FAILED"
+            4: "❌ CREATION FAILED",
+            5: "🚫 ACCOUNT SUSPENDED/DISABLED"
         }
         
         print("")
