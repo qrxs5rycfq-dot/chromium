@@ -6929,10 +6929,11 @@ class Account:
                             
                             # 3. Isi form lagi dengan email baru
                             print("   📝 Filling form with new email...")
-                            if form_version == "version_1":
-                                form_success = await self._process_version_1(page, new_email, pwd, full_name, usernam, birth_year, birth_month, birth_day)
-                            else:
-                                form_success = await self._process_version_2(page, new_email, pwd, full_name, usernam, birth_year, birth_month, birth_day)
+                            # Use dynamic form processor for retry (handles any form layout)
+                            form_success = await self._process_form_dynamically(
+                                page, new_email, pwd, full_name, usernam,
+                                birth_year, birth_month, birth_day
+                            )
                             
                             if not form_success:
                                 print("   ❌ Failed to fill form with new email")
