@@ -7918,8 +7918,9 @@ class Account:
             except Exception:
                 pass
             
-            # Wait for page to stabilize
-            await asyncio.sleep(2)
+            # Wait for page to stabilize (longer wait after first step)
+            wait_time = 2 if current_step == 1 else 4
+            await asyncio.sleep(wait_time)
             
             # ========== CHECK IF WE'RE ON OTP PAGE ==========
             if await self._is_otp_page(page):
@@ -7937,6 +7938,25 @@ class Account:
             print("   🔍 Scanning for visible form fields...")
             
             detected_fields = await self._detect_all_form_fields(page)
+            
+            # If no fields detected, specifically check for birthday page
+            if len(detected_fields) == 0:
+                print("   🔄 No standard fields found, checking for birthday page...")
+                is_birthday_page_detected = await self._detect_birthday_page(page)
+                if is_birthday_page_detected:
+                    print("   🎂 Birthday page detected! Using birthday fill method...")
+                    birthday_success = await self._fill_birthday_fields_v3(page, birth_year, birth_month, birth_day, "dynamic")
+                    if birthday_success:
+                        fields_filled_total.add('month')
+                        fields_filled_total.add('day')
+                        fields_filled_total.add('year')
+                        print("   ✅ Birthday fields filled successfully!")
+                        # Click Next/Continue button for birthday page
+                        await self._scroll_page_to_bottom(page)
+                        await asyncio.sleep(0.5)
+                        await self._detect_and_click_submit_button(page, "birthday")
+                        await asyncio.sleep(3)
+                        continue
             
             print(f"   📊 Found {len(detected_fields)} form fields:")
             for field_type, field_info in detected_fields.items():
@@ -8256,6 +8276,63 @@ class Account:
             
         except Exception:
             return None
+
+    async def _detect_birthday_page(self, page) -> bool:
+        """
+        Detect if the current page is a birthday entry page.
+        Checks for birthday-related text and select/combobox elements.
+        """
+        try:
+            # Check for birthday text on page
+            page_text = await page.evaluate("() => document.body.innerText.toLowerCase()")
+            birthday_indicators = [
+                'birthday', 'date of birth', 'tanggal lahir', 'fecha de nacimiento',
+                'date de naissance', 'geburtsdatum', 'add your birthday',
+                'enter your birthday', 'when were you born'
+            ]
+            
+            has_birthday_text = any(indicator in page_text for indicator in birthday_indicators)
+            
+            if not has_birthday_text:
+                return False
+            
+            # Check for select elements or comboboxes (birthday dropdowns)
+            birthday_selectors = [
+                'select[name*="birthday" i]',
+                'select[name*="month" i]',
+                'select[name*="day" i]',
+                'select[name*="year" i]',
+                'select[aria-label*="month" i]',
+                'select[aria-label*="day" i]',
+                'select[aria-label*="year" i]',
+                'select[title*="month" i]',
+                'select[title*="day" i]',
+                'select[title*="year" i]',
+                '[role="combobox"]',
+                '[role="listbox"]',
+                'select'  # Fallback: any select element
+            ]
+            
+            for selector in birthday_selectors:
+                elements = await page.query_selector_all(selector)
+                visible_count = 0
+                for element in elements:
+                    try:
+                        if await element.is_visible():
+                            visible_count += 1
+                    except Exception:
+                        continue
+                
+                # If we found visible select elements, likely birthday page
+                if visible_count >= 1:
+                    print(f"   🎂 Found {visible_count} visible select/combobox elements")
+                    return True
+            
+            return False
+            
+        except Exception as e:
+            print(f"   ⚠️ Birthday page detection error: {e}")
+            return False
 
     async def _fill_birthday_fields_v3(self, page, birth_year: int, birth_month: int, birth_day: int, form_version: str = "version_3") -> bool:
         """Enhanced birthday filling untuk Version 3 dengan dynamic detection"""
