@@ -111,7 +111,8 @@ MONTH_NAMES = {
 # Skip words for button filtering (to avoid clicking back/cancel buttons)
 BUTTON_SKIP_WORDS = [
     'cancel', 'back', 'batal', 'kembali', 'facebook', 'google', 'apple', 
-    'login', 'log in', 'previous', 'return', 'masuk dengan'
+    'login', 'log in', 'previous', 'return', 'masuk dengan', 'why', 'learn more',
+    'help', 'bantuan', 'terms', 'privacy', 'kebijakan', 'ketentuan'
 ]
 
 # Maximum buttons to show in debug output
@@ -8055,24 +8056,28 @@ class Account:
         """
         Determine the field type based on element attributes.
         Uses FIELD_PATTERNS for multi-language support.
-        Birthday fields (month, day, year) are only detected for select/combobox elements.
+        Birthday fields (month, day, year) are ONLY detected for select elements, never for input.
         """
-        # Combine all searchable text
+        # Combine all searchable text (excluding textContent which may contain unrelated text)
         searchable = ' '.join([
             attrs.get('placeholder', ''),
             attrs.get('ariaLabel', ''),
             attrs.get('name', ''),
             attrs.get('id', ''),
-            attrs.get('autocomplete', ''),
-            attrs.get('textContent', '')
+            attrs.get('autocomplete', '')
         ]).lower()
         
         input_type = attrs.get('type', '').lower()
         tag_name = attrs.get('tagName', '').lower()
         role = attrs.get('role', '').lower()
         
-        # Determine if this is a select-like element (for birthday fields)
-        is_select_like = tag_name == 'select' or role in ['combobox', 'listbox']
+        # STRICT CHECK: Input elements should NEVER be detected as birthday fields
+        is_input_element = tag_name == 'input'
+        
+        # Only select elements with proper role can be birthday fields
+        is_select_element = tag_name == 'select'
+        is_combobox = role in ['combobox', 'listbox'] and not is_input_element
+        is_birthday_capable = is_select_element or is_combobox
         
         # Priority 1: Input type (strongest indicator)
         if input_type == 'password':
@@ -8088,22 +8093,28 @@ class Account:
             'new-password': 'password',
             'current-password': 'password',
             'name': 'fullname',
+        }
+        # Birthday autocomplete only for select/combobox elements
+        birthday_autocomplete = {
             'bday-month': 'month',
             'bday-day': 'day',
             'bday-year': 'year'
         }
+        
         if autocomplete in autocomplete_map:
             return autocomplete_map[autocomplete]
         
-        # Priority 3: Pattern matching for standard form fields (ALWAYS checked for input elements)
+        if is_birthday_capable and autocomplete in birthday_autocomplete:
+            return birthday_autocomplete[autocomplete]
+        
+        # Priority 3: Pattern matching for standard form fields
         for field_type, patterns in FIELD_PATTERNS.items():
             for pattern in patterns:
                 if pattern.lower() in searchable:
                     return field_type
         
-        # Priority 4: Birthday fields - ONLY for select/combobox elements
-        # This prevents input fields from being incorrectly detected as birthday fields
-        if is_select_like:
+        # Priority 4: Birthday fields - STRICTLY for select/combobox elements ONLY
+        if is_birthday_capable:
             for field_type, patterns in BIRTHDAY_FIELD_PATTERNS.items():
                 for pattern in patterns:
                     if pattern.lower() in searchable:
@@ -8111,7 +8122,7 @@ class Account:
         
         # Priority 5: Fallback patterns for name/username (less strict)
         # Only check these if nothing else matched and it's a text input
-        if tag_name == 'input' and input_type in ['text', '']:
+        if is_input_element and input_type in ['text', '']:
             # Check for generic name patterns
             if 'name' in searchable and 'user' not in searchable:
                 return 'fullname'
@@ -8650,24 +8661,28 @@ class Account:
         """
         Analyze element attributes to determine field type.
         Uses FIELD_PATTERNS for multi-language support.
-        Birthday fields (month, day, year) are only detected for select/combobox elements.
+        Birthday fields (month, day, year) are ONLY detected for select elements, never for input.
         """
-        # Combine all searchable text
+        # Combine all searchable text (excluding textContent which may contain unrelated text)
         searchable_text = ' '.join([
             elem_data.get('placeholder', ''),
             elem_data.get('ariaLabel', ''),
             elem_data.get('name', ''),
             elem_data.get('id', ''),
-            elem_data.get('autocomplete', ''),
-            elem_data.get('textContent', '')
+            elem_data.get('autocomplete', '')
         ]).lower()
         
         input_type = elem_data.get('type', '').lower()
         tag_name = elem_data.get('tagName', '').lower()
         role = elem_data.get('role', '').lower() if elem_data.get('role') else ''
         
-        # Determine if this is a select-like element (for birthday fields)
-        is_select_like = tag_name == 'select' or role in ['combobox', 'listbox']
+        # STRICT CHECK: Input elements should NEVER be detected as birthday fields
+        is_input_element = tag_name == 'input'
+        
+        # Only select elements with proper role can be birthday fields
+        is_select_element = tag_name == 'select'
+        is_combobox = role in ['combobox', 'listbox'] and not is_input_element
+        is_birthday_capable = is_select_element or is_combobox
         
         # ========== PRIORITY 1: Type-based detection ==========
         if input_type == 'password':
@@ -8686,13 +8701,21 @@ class Account:
             'new-password': 'password',
             'current-password': 'password',
             'name': 'fullname',
+        }
+        # Birthday autocomplete only for select/combobox elements
+        birthday_autocomplete = {
             'bday-month': 'month',
             'bday-day': 'day',
             'bday-year': 'year'
         }
+        
         if autocomplete in autocomplete_mapping:
             elem_data['detection_method'] = 'autocomplete'
             return autocomplete_mapping[autocomplete]
+        
+        if is_birthday_capable and autocomplete in birthday_autocomplete:
+            elem_data['detection_method'] = 'autocomplete:birthday'
+            return birthday_autocomplete[autocomplete]
         
         # ========== PRIORITY 3: Pattern-based detection for standard fields ==========
         for field_type, patterns in FIELD_PATTERNS.items():
@@ -8701,8 +8724,8 @@ class Account:
                     elem_data['detection_method'] = f'pattern:{pattern}'
                     return field_type
         
-        # ========== PRIORITY 4: Birthday field pattern matching - ONLY for select/combobox ==========
-        if is_select_like:
+        # ========== PRIORITY 4: Birthday field pattern matching - STRICTLY for select/combobox ONLY ==========
+        if is_birthday_capable:
             for field_type, patterns in BIRTHDAY_FIELD_PATTERNS.items():
                 for pattern in patterns:
                     if pattern.lower() in searchable_text:
@@ -8710,7 +8733,7 @@ class Account:
                         return field_type
         
         # ========== PRIORITY 5: Select/combobox analysis for birthday by option values ==========
-        if is_select_like:
+        if is_birthday_capable:
             # Analyze options for birthday field detection
             birthday_type = await self._analyze_select_for_birthday(elem_data)
             if birthday_type:
@@ -8718,7 +8741,7 @@ class Account:
                 return birthday_type
         
         # ========== PRIORITY 6: Fallback patterns for name/username (less strict) ==========
-        if tag_name == 'input' and input_type in ['text', '']:
+        if is_input_element and input_type in ['text', '']:
             if 'name' in searchable_text and 'user' not in searchable_text:
                 elem_data['detection_method'] = 'fallback:name'
                 return 'fullname'
