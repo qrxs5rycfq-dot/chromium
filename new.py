@@ -80,16 +80,20 @@ warnings.filterwarnings("ignore", category=RuntimeWarning,
 # Multi-language support for placeholder/aria-label based field mapping
 # ============================================================================
 FIELD_PATTERNS = {
-    'month': ['month', 'bulan', 'mes', 'mois', 'mm', 'monat', 'mese', 'ماه', '月'],
-    'day': ['day', 'hari', 'dia', 'jour', 'dd', 'tag', 'giorno', 'روز', '日'],
-    'year': ['year', 'tahun', 'año', 'année', 'yyyy', 'jahr', 'anno', 'سال', '年'],
+    # Priority 1: Standard form fields (checked first for input elements)
     'email': ['email', 'phone', 'mobile', 'emailorphone', 'email or phone', 'email address', 
               'phone number', 'email atau telepon', 'correo electrónico', 'e-mail'],
     'password': ['password', 'kata sandi', 'contraseña', 'mot de passe', 'passwort', 'sandi'],
-    'fullname': ['full name', 'nama lengkap', 'nombre completo', 'nom complet', 'vollständiger name', 
-                 'name', 'nama', 'nombre'],
     'username': ['username', 'nama pengguna', 'usuario', 'nom d\'utilisateur', 'benutzername', 
-                 'user name', 'user']
+                 'user name'],
+    'fullname': ['full name', 'nama lengkap', 'nombre completo', 'nom complet', 'vollständiger name'],
+}
+
+# Birthday field patterns - only checked for select/combobox elements
+BIRTHDAY_FIELD_PATTERNS = {
+    'month': ['month', 'bulan', 'mes', 'mois', 'mm', 'monat', 'mese', 'ماه', '月'],
+    'day': ['day', 'hari', 'dia', 'jour', 'dd', 'tag', 'giorno', 'روز', '日'],
+    'year': ['year', 'tahun', 'año', 'année', 'yyyy', 'jahr', 'anno', 'سال', '年'],
 }
 
 # Month names for smart field value selection
@@ -8051,6 +8055,7 @@ class Account:
         """
         Determine the field type based on element attributes.
         Uses FIELD_PATTERNS for multi-language support.
+        Birthday fields (month, day, year) are only detected for select/combobox elements.
         """
         # Combine all searchable text
         searchable = ' '.join([
@@ -8064,8 +8069,12 @@ class Account:
         
         input_type = attrs.get('type', '').lower()
         tag_name = attrs.get('tagName', '').lower()
+        role = attrs.get('role', '').lower()
         
-        # Priority 1: Input type
+        # Determine if this is a select-like element (for birthday fields)
+        is_select_like = tag_name == 'select' or role in ['combobox', 'listbox']
+        
+        # Priority 1: Input type (strongest indicator)
         if input_type == 'password':
             return 'password'
         if input_type == 'email':
@@ -8086,11 +8095,28 @@ class Account:
         if autocomplete in autocomplete_map:
             return autocomplete_map[autocomplete]
         
-        # Priority 3: Pattern matching from FIELD_PATTERNS
+        # Priority 3: Pattern matching for standard form fields (ALWAYS checked for input elements)
         for field_type, patterns in FIELD_PATTERNS.items():
             for pattern in patterns:
                 if pattern.lower() in searchable:
                     return field_type
+        
+        # Priority 4: Birthday fields - ONLY for select/combobox elements
+        # This prevents input fields from being incorrectly detected as birthday fields
+        if is_select_like:
+            for field_type, patterns in BIRTHDAY_FIELD_PATTERNS.items():
+                for pattern in patterns:
+                    if pattern.lower() in searchable:
+                        return field_type
+        
+        # Priority 5: Fallback patterns for name/username (less strict)
+        # Only check these if nothing else matched and it's a text input
+        if tag_name == 'input' and input_type in ['text', '']:
+            # Check for generic name patterns
+            if 'name' in searchable and 'user' not in searchable:
+                return 'fullname'
+            if 'user' in searchable or 'nama pengguna' in searchable:
+                return 'username'
         
         return None
     
@@ -8624,6 +8650,7 @@ class Account:
         """
         Analyze element attributes to determine field type.
         Uses FIELD_PATTERNS for multi-language support.
+        Birthday fields (month, day, year) are only detected for select/combobox elements.
         """
         # Combine all searchable text
         searchable_text = ' '.join([
@@ -8637,6 +8664,10 @@ class Account:
         
         input_type = elem_data.get('type', '').lower()
         tag_name = elem_data.get('tagName', '').lower()
+        role = elem_data.get('role', '').lower() if elem_data.get('role') else ''
+        
+        # Determine if this is a select-like element (for birthday fields)
+        is_select_like = tag_name == 'select' or role in ['combobox', 'listbox']
         
         # ========== PRIORITY 1: Type-based detection ==========
         if input_type == 'password':
@@ -8663,20 +8694,37 @@ class Account:
             elem_data['detection_method'] = 'autocomplete'
             return autocomplete_mapping[autocomplete]
         
-        # ========== PRIORITY 3: Pattern-based detection (multi-language) ==========
+        # ========== PRIORITY 3: Pattern-based detection for standard fields ==========
         for field_type, patterns in FIELD_PATTERNS.items():
             for pattern in patterns:
                 if pattern.lower() in searchable_text:
                     elem_data['detection_method'] = f'pattern:{pattern}'
                     return field_type
         
-        # ========== PRIORITY 4: Select/combobox analysis for birthday ==========
-        if tag_name == 'select' or elem_data.get('role') == 'combobox':
+        # ========== PRIORITY 4: Birthday field pattern matching - ONLY for select/combobox ==========
+        if is_select_like:
+            for field_type, patterns in BIRTHDAY_FIELD_PATTERNS.items():
+                for pattern in patterns:
+                    if pattern.lower() in searchable_text:
+                        elem_data['detection_method'] = f'birthday_pattern:{pattern}'
+                        return field_type
+        
+        # ========== PRIORITY 5: Select/combobox analysis for birthday by option values ==========
+        if is_select_like:
             # Analyze options for birthday field detection
             birthday_type = await self._analyze_select_for_birthday(elem_data)
             if birthday_type:
                 elem_data['detection_method'] = 'options_range'
                 return birthday_type
+        
+        # ========== PRIORITY 6: Fallback patterns for name/username (less strict) ==========
+        if tag_name == 'input' and input_type in ['text', '']:
+            if 'name' in searchable_text and 'user' not in searchable_text:
+                elem_data['detection_method'] = 'fallback:name'
+                return 'fullname'
+            if 'user' in searchable_text or 'nama pengguna' in searchable_text:
+                elem_data['detection_method'] = 'fallback:user'
+                return 'username'
         
         return None
     
