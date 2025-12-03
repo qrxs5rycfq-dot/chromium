@@ -7889,8 +7889,10 @@ class Account:
         - Multi-step with fields appearing after each submit
         - Username appearing on second submission
         - Birthday on separate page
+        - Any random combination of fields
         """
         print("   🔄 Starting FULLY DYNAMIC form processing...")
+        print("   📝 Will check for ALL field types on EVERY page")
         
         max_steps = MAX_FORM_STEPS  # Use constant for max form steps
         current_step = 0
@@ -7934,67 +7936,66 @@ class Account:
                 print(f"   ⚠️ Form error detected: {error_detected}")
                 # Continue anyway, might be able to fix with more fields
             
-            # ========== DETECT ALL VISIBLE FORM FIELDS ==========
-            print("   🔍 Scanning for visible form fields...")
+            # ========== COMPREHENSIVE FIELD DETECTION ==========
+            # Check for ALL possible field types on this page
+            print("   🔍 Comprehensive scan: checking for ALL field types...")
             
-            detected_fields = await self._detect_all_form_fields(page)
+            detected_fields = {}
+            has_birthday = False
             
-            # If no fields detected, specifically check for birthday page
-            if len(detected_fields) == 0:
-                print("   🔄 No standard fields found, checking for birthday page...")
-                is_birthday_page_detected = await self._detect_birthday_page(page)
-                if is_birthday_page_detected:
-                    print("   🎂 Birthday page detected! Using birthday fill method...")
-                    birthday_success = await self._fill_birthday_fields_v3(page, birth_year, birth_month, birth_day, "dynamic")
-                    if birthday_success:
-                        fields_filled_total.add('month')
-                        fields_filled_total.add('day')
-                        fields_filled_total.add('year')
-                        print("   ✅ Birthday fields filled successfully!")
-                        # Click Next/Continue button for birthday page
-                        await self._scroll_page_to_bottom(page)
-                        await asyncio.sleep(0.5)
-                        await self._detect_and_click_submit_button(page, "birthday")
-                        await asyncio.sleep(3)
-                        continue
+            # 1. Check for standard input fields (email, password, fullname, username)
+            standard_fields = await self._detect_all_form_fields(page)
+            detected_fields.update(standard_fields)
             
-            print(f"   📊 Found {len(detected_fields)} form fields:")
-            for field_type, field_info in detected_fields.items():
-                status = "✅ filled" if field_type in fields_filled_total else "⬚ empty"
-                print(f"      - {field_type}: {status}")
+            # 2. Always check for birthday fields (select/combobox)
+            birthday_fields = await self._detect_birthday_fields_comprehensive(page)
+            if birthday_fields:
+                detected_fields.update(birthday_fields)
+                has_birthday = True
             
-            # ========== FILL UNFILLED FIELDS ==========
+            # 3. Print what we found
+            print(f"   📊 Found {len(detected_fields)} fields on this page:")
+            for field_type in ['email', 'password', 'fullname', 'username', 'month', 'day', 'year']:
+                if field_type in detected_fields:
+                    status = "✅ filled" if field_type in fields_filled_total else "⬚ to fill"
+                    print(f"      ✓ {field_type}: {status}")
+                else:
+                    print(f"      ✗ {field_type}: not found")
+            
+            # ========== FILL ALL DETECTED UNFILLED FIELDS ==========
             fields_filled_this_step = 0
             
-            for field_type, field_element in detected_fields.items():
-                # Skip if already filled in a previous step
-                if field_type in fields_filled_total:
-                    continue
-                
-                # Get the value for this field type
-                value = field_values.get(field_type)
-                if value is None:
-                    continue
-                
-                # Fill the field
-                success = await self._fill_field_dynamically(page, field_element, field_type, value)
-                
-                if success:
-                    fields_filled_total.add(field_type)
-                    fields_filled_this_step += 1
-                    print(f"   ✅ Filled {field_type}")
-                else:
-                    print(f"   ⚠️ Failed to fill {field_type}")
+            # Fill standard fields first
+            for field_type in ['email', 'password', 'fullname', 'username']:
+                if field_type in detected_fields and field_type not in fields_filled_total:
+                    value = field_values.get(field_type)
+                    if value:
+                        success = await self._fill_field_dynamically(page, detected_fields[field_type], field_type, value)
+                        if success:
+                            fields_filled_total.add(field_type)
+                            fields_filled_this_step += 1
+                            print(f"   ✅ Filled {field_type}")
+                        else:
+                            print(f"   ⚠️ Failed to fill {field_type}")
             
-            print(f"   📊 Filled {fields_filled_this_step} fields in this step")
+            # Fill birthday fields using specialized method if detected
+            birthday_needed = any(f not in fields_filled_total for f in ['month', 'day', 'year'])
+            if has_birthday and birthday_needed:
+                print("   🎂 Filling birthday fields...")
+                birthday_success = await self._fill_birthday_fields_v3(page, birth_year, birth_month, birth_day, "dynamic")
+                if birthday_success:
+                    fields_filled_total.add('month')
+                    fields_filled_total.add('day')
+                    fields_filled_total.add('year')
+                    fields_filled_this_step += 3
+                    print("   ✅ Birthday fields filled!")
             
-            # ========== CHECK IF WE HAVE ENOUGH FIELDS TO SUBMIT ==========
-            is_birthday_page = 'month' in detected_fields or 'day' in detected_fields or 'year' in detected_fields
+            print(f"   📊 Total filled this step: {fields_filled_this_step}")
             
-            # If we didn't fill any new fields and we're not on birthday page, check if we've reached OTP
-            # This is a secondary check that catches cases where we navigated to OTP after the last submit
-            if fields_filled_this_step == 0 and not is_birthday_page:
-                print("   ⚠️ No new fields filled and not on birthday page, checking for OTP...")
+            # ========== CHECK IF WE SHOULD CONTINUE ==========
+            # If we didn't fill anything and no fields detected, might be on OTP
+            if fields_filled_this_step == 0 and len(detected_fields) == 0:
+                print("   ⚠️ No fields found or filled, checking for OTP...")
                 if await self._is_otp_page(page):
                     print("   🎉 Already on OTP page!")
                     self.status = 2
@@ -8007,8 +8008,8 @@ class Account:
             await self._scroll_page_to_bottom(page)
             await asyncio.sleep(0.5)
             
-            # Determine button type based on what we've filled
-            if is_birthday_page:
+            # Determine button type based on what fields we have
+            if has_birthday:
                 button_step = "birthday"
             else:
                 button_step = "signup"
@@ -8031,6 +8032,109 @@ class Account:
         print("   ❌ Max steps reached without completing form")
         return False
     
+    async def _detect_birthday_fields_comprehensive(self, page) -> Dict[str, Any]:
+        """
+        Comprehensively detect birthday fields (month, day, year) on the current page.
+        Checks for select elements, comboboxes, and other birthday-related elements.
+        Returns a dictionary with detected birthday fields.
+        """
+        birthday_fields = {}
+        
+        try:
+            # Strategy 1: Look for select elements with birthday-related attributes
+            select_elements = await page.query_selector_all('select')
+            
+            for select in select_elements:
+                try:
+                    if not await select.is_visible():
+                        continue
+                    
+                    # Get attributes
+                    name = await select.get_attribute('name') or ''
+                    aria_label = await select.get_attribute('aria-label') or ''
+                    title = await select.get_attribute('title') or ''
+                    searchable = f"{name} {aria_label} {title}".lower()
+                    
+                    # Check for month
+                    if any(p in searchable for p in BIRTHDAY_FIELD_PATTERNS.get('month', [])):
+                        birthday_fields['month'] = select
+                        continue
+                    
+                    # Check for day
+                    if any(p in searchable for p in BIRTHDAY_FIELD_PATTERNS.get('day', [])):
+                        birthday_fields['day'] = select
+                        continue
+                    
+                    # Check for year
+                    if any(p in searchable for p in BIRTHDAY_FIELD_PATTERNS.get('year', [])):
+                        birthday_fields['year'] = select
+                        continue
+                    
+                    # Analyze options to determine type
+                    options = await select.query_selector_all('option')
+                    option_values = []
+                    for opt in options[:15]:  # Check first 15 options
+                        try:
+                            val = await opt.get_attribute('value')
+                            if val and val.isdigit():
+                                option_values.append(int(val))
+                        except Exception:
+                            continue
+                    
+                    if option_values:
+                        min_val = min(option_values) if option_values else 0
+                        max_val = max(option_values) if option_values else 0
+                        count = len(option_values)
+                        
+                        # Month: 1-12 or 12 options
+                        if (min_val == 1 and max_val == 12) or count == 12:
+                            if 'month' not in birthday_fields:
+                                birthday_fields['month'] = select
+                        # Day: 1-31 or 28-31 options
+                        elif (min_val == 1 and max_val >= 28 and max_val <= 31) or (count >= 28 and count <= 31):
+                            if 'day' not in birthday_fields:
+                                birthday_fields['day'] = select
+                        # Year: 1900-2024 range
+                        elif min_val >= 1900 and max_val <= 2025:
+                            if 'year' not in birthday_fields:
+                                birthday_fields['year'] = select
+                                
+                except Exception:
+                    continue
+            
+            # Strategy 2: Look for combobox elements
+            comboboxes = await page.query_selector_all('[role="combobox"], [role="listbox"]')
+            
+            for combo in comboboxes:
+                try:
+                    if not await combo.is_visible():
+                        continue
+                    
+                    tag = await combo.evaluate("(el) => el.tagName.toLowerCase()")
+                    if tag == 'input':  # Skip input elements
+                        continue
+                    
+                    aria_label = await combo.get_attribute('aria-label') or ''
+                    text = await combo.text_content() or ''
+                    searchable = f"{aria_label} {text}".lower()
+                    
+                    for field_type, patterns in BIRTHDAY_FIELD_PATTERNS.items():
+                        if field_type not in birthday_fields:
+                            if any(p in searchable for p in patterns):
+                                birthday_fields[field_type] = combo
+                                break
+                                
+                except Exception:
+                    continue
+            
+            if birthday_fields:
+                print(f"   🎂 Found birthday fields: {list(birthday_fields.keys())}")
+            
+        except Exception as e:
+            print(f"   ⚠️ Birthday field detection error: {e}")
+        
+        return birthday_fields
+
     async def _detect_all_form_fields(self, page) -> Dict[str, Any]:
         """
         Detect all visible form fields on the current page.
