@@ -113,6 +113,15 @@ BUTTON_SKIP_WORDS = [
 # Maximum buttons to show in debug output
 MAX_DEBUG_BUTTONS = 10
 
+# Maximum form processing steps to prevent infinite loops
+MAX_FORM_STEPS = 5
+
+# Maximum character length for error message display
+MAX_ERROR_LENGTH = 100
+
+# Threshold for using slow typing (characters)
+SLOW_TYPING_THRESHOLD = 30
+
 class AdvancedSecurityManager:
     """Enhanced security manager tanpa menghilangkan fitur existing"""
     
@@ -6832,29 +6841,38 @@ class Account:
                 self.status = 4
                 return self._return_data()
             
-            # ========== FORM VERSION DETECTION ==========
+            # ========== FULLY DYNAMIC FORM PROCESSING ==========
             print("")
-            print("🔍 STEP 4: Form version detection...")
+            print("🔍 STEP 4: Fully Dynamic Form Processing...")
+            print("   🔄 Using adaptive form detection that works with any form structure")
             
-            await asyncio.sleep(6)
+            await asyncio.sleep(3)
             
-            # Detect form version
-            form_version = await self._detect_form_version(page)
-            print(f"   🎯 DETECTED FORM VERSION: {form_version}")
+            # Use the new fully dynamic form processor
+            success = await self._process_form_dynamically(
+                page, email_new, pwd, full_name, usernam, 
+                birth_year, birth_month, birth_day
+            )
             
-            if form_version == "version_1":
-                # Process Version 1 using your existing code
-                success = await self._process_version_1(page, email_new, pwd, full_name, usernam, birth_year, birth_month, birth_day, form_version)
-            elif form_version == "version_2":
-                # Process Version 2 using new flow
-                success = await self._process_version_2(page, email_new, pwd, full_name, usernam, birth_year, birth_month, birth_day)
-            elif form_version == "version_3":
-                # Process Version 2 using new flow
-                success = await self._process_version_1(page, email_new, pwd, full_name, usernam, birth_year, birth_month, birth_day, form_version)
-            else:
-                logger.error("   ❌ Could not detect form version")
-                self.status = 4
-                return self._return_data()
+            # Fallback to version-specific processing if dynamic fails
+            if not success:
+                print("")
+                print("   ⚠️ Dynamic processing failed, trying version-specific fallback...")
+                
+                # Detect form version for fallback
+                form_version = await self._detect_form_version(page)
+                print(f"   🎯 DETECTED FORM VERSION: {form_version}")
+                
+                if form_version == "version_1":
+                    success = await self._process_version_1(page, email_new, pwd, full_name, usernam, birth_year, birth_month, birth_day, form_version)
+                elif form_version == "version_2":
+                    success = await self._process_version_2(page, email_new, pwd, full_name, usernam, birth_year, birth_month, birth_day)
+                elif form_version == "version_3":
+                    success = await self._process_version_1(page, email_new, pwd, full_name, usernam, birth_year, birth_month, birth_day, form_version)
+                else:
+                    logger.error("   ❌ Could not detect form version")
+                    self.status = 4
+                    return self._return_data()
             
             if not success:
                 self.status = 4
@@ -7848,6 +7866,359 @@ class Account:
                 print("   ⚠️ Screenshot skipped: %s", e)
             self.status = 4
             return False
+
+    async def _process_form_dynamically(self, page, email: str, password: str, full_name: str, username: str,
+                                        birth_year: int, birth_month: int, birth_day: int) -> bool:
+        """
+        Fully dynamic form processing that adapts to any form structure.
+        
+        This method:
+        1. Detects all visible form fields on the current page
+        2. Identifies field types based on attributes (placeholder, aria-label, name, type)
+        3. Fills detected fields with appropriate values
+        4. Clicks the submit/next button
+        5. Waits for page changes and repeats until reaching OTP page
+        
+        Supports any form flow:
+        - Single page with all fields
+        - Multi-step with fields appearing after each submit
+        - Username appearing on second submission
+        - Birthday on separate page
+        """
+        print("   🔄 Starting FULLY DYNAMIC form processing...")
+        
+        max_steps = MAX_FORM_STEPS  # Use constant for max form steps
+        current_step = 0
+        fields_filled_total = set()  # Track which field types have been filled
+        
+        # Data mapping for field types
+        field_values = {
+            'email': email,
+            'password': password,
+            'fullname': full_name,
+            'username': username,
+            'month': birth_month,
+            'day': birth_day,
+            'year': birth_year
+        }
+        
+        while current_step < max_steps:
+            current_step += 1
+            print(f"\n   ═══════════════════════════════════════")
+            print(f"   📋 DYNAMIC STEP {current_step}/{max_steps}")
+            print(f"   ═══════════════════════════════════════")
+            
+            try:
+                await page.screenshot(path=f"./debug_dynamic_step_{current_step}.png")
+            except Exception:
+                pass
+            
+            # Wait for page to stabilize
+            await asyncio.sleep(2)
+            
+            # ========== CHECK IF WE'RE ON OTP PAGE ==========
+            if await self._is_otp_page(page):
+                print("   🎉 Reached OTP/Confirmation page!")
+                self.status = 2
+                return True
+            
+            # ========== CHECK FOR ERROR MESSAGES ==========
+            error_detected = await self._check_for_form_errors(page)
+            if error_detected:
+                print(f"   ⚠️ Form error detected: {error_detected}")
+                # Continue anyway, might be able to fix with more fields
+            
+            # ========== DETECT ALL VISIBLE FORM FIELDS ==========
+            print("   🔍 Scanning for visible form fields...")
+            
+            detected_fields = await self._detect_all_form_fields(page)
+            
+            print(f"   📊 Found {len(detected_fields)} form fields:")
+            for field_type, field_info in detected_fields.items():
+                status = "✅ filled" if field_type in fields_filled_total else "⬚ empty"
+                print(f"      - {field_type}: {status}")
+            
+            # ========== FILL UNFILLED FIELDS ==========
+            fields_filled_this_step = 0
+            
+            for field_type, field_element in detected_fields.items():
+                # Skip if already filled in a previous step
+                if field_type in fields_filled_total:
+                    continue
+                
+                # Get the value for this field type
+                value = field_values.get(field_type)
+                if value is None:
+                    continue
+                
+                # Fill the field
+                success = await self._fill_field_dynamically(page, field_element, field_type, value)
+                
+                if success:
+                    fields_filled_total.add(field_type)
+                    fields_filled_this_step += 1
+                    print(f"   ✅ Filled {field_type}")
+                else:
+                    print(f"   ⚠️ Failed to fill {field_type}")
+            
+            print(f"   📊 Filled {fields_filled_this_step} fields in this step")
+            
+            # ========== CHECK IF WE HAVE ENOUGH FIELDS TO SUBMIT ==========
+            is_birthday_page = 'month' in detected_fields or 'day' in detected_fields or 'year' in detected_fields
+            
+            # If we didn't fill any new fields and we're not on birthday page, check if we've reached OTP
+            # This is a secondary check that catches cases where we navigated to OTP after the last submit
+            if fields_filled_this_step == 0 and not is_birthday_page:
+                print("   ⚠️ No new fields filled and not on birthday page, checking for OTP...")
+                if await self._is_otp_page(page):
+                    print("   🎉 Already on OTP page!")
+                    self.status = 2
+                    return True
+            
+            # ========== CLICK SUBMIT/NEXT BUTTON ==========
+            print("   🔘 Looking for submit button...")
+            
+            # Scroll to reveal button
+            await self._scroll_page_to_bottom(page)
+            await asyncio.sleep(0.5)
+            
+            # Determine button type based on what we've filled
+            if is_birthday_page:
+                button_step = "birthday"
+            else:
+                button_step = "signup"
+            
+            button_clicked = await self._detect_and_click_submit_button(page, button_step)
+            
+            if not button_clicked:
+                print("   ⚠️ No submit button found, trying Enter key...")
+                await page.keyboard.press('Enter')
+                await asyncio.sleep(1)
+            
+            # Wait for navigation or new fields to appear
+            print("   ⏳ Waiting for page response...")
+            await asyncio.sleep(3)
+            
+            # Check if page changed
+            new_url = page.url
+            print(f"   🔗 Current URL: {new_url}")
+        
+        print("   ❌ Max steps reached without completing form")
+        return False
+    
+    async def _detect_all_form_fields(self, page) -> Dict[str, Any]:
+        """
+        Detect all visible form fields on the current page.
+        Returns a dictionary mapping field types to their elements.
+        """
+        detected_fields = {}
+        
+        try:
+            # Get all potential form elements
+            all_elements = await page.query_selector_all(
+                'input:not([type="hidden"]):not([type="submit"]):not([type="button"]), '
+                'select, [role="combobox"], [role="listbox"]'
+            )
+            
+            for element in all_elements:
+                try:
+                    # Check if visible
+                    if not await element.is_visible():
+                        continue
+                    
+                    bbox = await element.bounding_box()
+                    if not bbox or bbox['width'] <= 0 or bbox['height'] <= 0:
+                        continue
+                    
+                    # Get element attributes
+                    attrs = await self._get_element_attributes(page, element)
+                    
+                    # Determine field type
+                    field_type = await self._determine_field_type(attrs)
+                    
+                    if field_type and field_type not in detected_fields:
+                        detected_fields[field_type] = element
+                        
+                except Exception:
+                    continue
+            
+        except Exception as e:
+            print(f"   ⚠️ Field detection error: {e}")
+        
+        return detected_fields
+    
+    async def _determine_field_type(self, attrs: Dict[str, Any]) -> Optional[str]:
+        """
+        Determine the field type based on element attributes.
+        Uses FIELD_PATTERNS for multi-language support.
+        """
+        # Combine all searchable text
+        searchable = ' '.join([
+            attrs.get('placeholder', ''),
+            attrs.get('ariaLabel', ''),
+            attrs.get('name', ''),
+            attrs.get('id', ''),
+            attrs.get('autocomplete', ''),
+            attrs.get('textContent', '')
+        ]).lower()
+        
+        input_type = attrs.get('type', '').lower()
+        tag_name = attrs.get('tagName', '').lower()
+        
+        # Priority 1: Input type
+        if input_type == 'password':
+            return 'password'
+        if input_type == 'email':
+            return 'email'
+        
+        # Priority 2: Autocomplete attribute
+        autocomplete = attrs.get('autocomplete', '').lower()
+        autocomplete_map = {
+            'email': 'email',
+            'username': 'username',
+            'new-password': 'password',
+            'current-password': 'password',
+            'name': 'fullname',
+            'bday-month': 'month',
+            'bday-day': 'day',
+            'bday-year': 'year'
+        }
+        if autocomplete in autocomplete_map:
+            return autocomplete_map[autocomplete]
+        
+        # Priority 3: Pattern matching from FIELD_PATTERNS
+        for field_type, patterns in FIELD_PATTERNS.items():
+            for pattern in patterns:
+                if pattern.lower() in searchable:
+                    return field_type
+        
+        return None
+    
+    async def _fill_field_dynamically(self, page, element, field_type: str, value) -> bool:
+        """
+        Fill a form field dynamically based on its type.
+        """
+        try:
+            tag_name = await element.evaluate("(el) => el.tagName.toLowerCase()")
+            role = await element.get_attribute('role') or ''
+            
+            # Handle birthday fields (select/combobox)
+            if field_type in ['month', 'day', 'year']:
+                return await self._fill_birthday_with_smart_selection(page, element, value, field_type)
+            
+            # Handle text input fields
+            if tag_name == 'input':
+                await element.click()
+                await asyncio.sleep(0.3)
+                await element.fill("")
+                await asyncio.sleep(0.2)
+                
+                value_str = str(value)
+                
+                # Use slow typing only for short values (like username)
+                # Use faster fill for longer values (like email, password)
+                if len(value_str) <= SLOW_TYPING_THRESHOLD:
+                    # Type with human-like delay for short values
+                    for char in value_str:
+                        await element.type(char, delay=random.randint(30, 80))
+                        await asyncio.sleep(random.uniform(0.02, 0.05))
+                else:
+                    # Use faster typing for longer values
+                    await element.type(value_str, delay=30)
+                
+                await asyncio.sleep(0.5)
+                return True
+            
+            # Handle select elements
+            if tag_name == 'select':
+                try:
+                    await element.select_option(value=str(value))
+                    return True
+                except Exception:
+                    try:
+                        await element.select_option(label=str(value))
+                        return True
+                    except Exception:
+                        pass
+            
+            # Handle combobox
+            if role == 'combobox':
+                await element.click()
+                await asyncio.sleep(0.5)
+                await element.fill(str(value))
+                await asyncio.sleep(0.3)
+                await element.press('Enter')
+                return True
+            
+            return False
+            
+        except Exception as e:
+            print(f"   ⚠️ Error filling {field_type}: {e}")
+            return False
+    
+    async def _is_otp_page(self, page) -> bool:
+        """
+        Check if we're on the OTP/confirmation code page.
+        """
+        try:
+            # Check for OTP input fields
+            otp_selectors = [
+                'input[placeholder*="confirmation" i]',
+                'input[placeholder*="code" i]',
+                'input[aria-label*="confirmation" i]',
+                'input[aria-label*="code" i]',
+                'input[name*="code" i]',
+                'input[placeholder*="kode" i]',
+                'input[placeholder*="verification" i]'
+            ]
+            
+            for selector in otp_selectors:
+                element = await page.query_selector(selector)
+                if element and await element.is_visible():
+                    return True
+            
+            # Check page text content
+            page_text = await page.evaluate("() => document.body.innerText.toLowerCase()")
+            otp_indicators = [
+                'confirmation code', 'verification code', 'enter the code',
+                'enter code', 'we sent', 'check your email',
+                'kode konfirmasi', 'masukkan kode',
+                'código de confirmación'
+            ]
+            
+            for indicator in otp_indicators:
+                if indicator in page_text:
+                    return True
+            
+            return False
+            
+        except Exception:
+            return False
+    
+    async def _check_for_form_errors(self, page) -> Optional[str]:
+        """
+        Check for form validation errors on the page.
+        """
+        try:
+            error_selectors = [
+                '[aria-invalid="true"]',
+                '[class*="error"]',
+                '[class*="invalid"]',
+                '[role="alert"]'
+            ]
+            
+            for selector in error_selectors:
+                elements = await page.query_selector_all(selector)
+                for element in elements:
+                    if await element.is_visible():
+                        text = await element.text_content()
+                        if text and text.strip():
+                            return text.strip()[:MAX_ERROR_LENGTH]
+            
+            return None
+            
+        except Exception:
+            return None
 
     async def _fill_birthday_fields_v3(self, page, birth_year: int, birth_month: int, birth_day: int, form_version: str = "version_3") -> bool:
         """Enhanced birthday filling untuk Version 3 dengan dynamic detection"""
