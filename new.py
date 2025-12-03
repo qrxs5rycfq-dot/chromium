@@ -104,6 +104,15 @@ MONTH_NAMES = {
               'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 }
 
+# Skip words for button filtering (to avoid clicking back/cancel buttons)
+BUTTON_SKIP_WORDS = [
+    'cancel', 'back', 'batal', 'kembali', 'facebook', 'google', 'apple', 
+    'login', 'log in', 'previous', 'return', 'masuk dengan'
+]
+
+# Maximum buttons to show in debug output
+MAX_DEBUG_BUTTONS = 10
+
 class AdvancedSecurityManager:
     """Enhanced security manager tanpa menghilangkan fitur existing"""
     
@@ -7544,7 +7553,7 @@ class Account:
             all_buttons = await page.query_selector_all('button, [role="button"]')
             print(f"   📊 Total buttons found: {len(all_buttons)}")
             
-            for i, btn in enumerate(all_buttons[:10]):  # Limit to first 10
+            for i, btn in enumerate(all_buttons[:MAX_DEBUG_BUTTONS]):  # Limit to first 10
                 try:
                     await btn.scroll_into_view_if_needed()
                     await asyncio.sleep(0.1)
@@ -7796,7 +7805,7 @@ class Account:
                 # Debug: List all available buttons with details
                 print("   🐛 DEBUG: All buttons on birthday page:")
                 all_buttons = await page.query_selector_all('button, [role="button"]')
-                for i, btn in enumerate(all_buttons[:10]):  # Limit to first 10 buttons
+                for i, btn in enumerate(all_buttons[:MAX_DEBUG_BUTTONS]):  # Limit to first 10 buttons
                     try:
                         is_visible = await btn.is_visible()
                         is_enabled = await btn.is_enabled()
@@ -8333,8 +8342,9 @@ class Account:
                     numeric_values.append(num)
                 except ValueError:
                     # Check for month names
+                    stripped_val = val.strip()
                     for lang_months in MONTH_NAMES.values():
-                        if val.strip().title() in lang_months or val.strip() in lang_months:
+                        if stripped_val.title() in lang_months or stripped_val in lang_months:
                             return 'month'
             
             if not numeric_values:
@@ -9360,9 +9370,8 @@ class Account:
             # Try buttons from bottom to top
             for btn_data in visible_buttons[:3]:
                 text = btn_data['text'].lower()
-                # Skip obvious non-submit buttons
-                skip_words = ['cancel', 'back', 'batal', 'kembali', 'facebook', 'google', 'apple', 'login', 'log in']
-                if any(skip in text for skip in skip_words):
+                # Skip obvious non-submit buttons using global constant
+                if any(skip in text for skip in BUTTON_SKIP_WORDS):
                     continue
                 
                 await btn_data['element'].scroll_into_view_if_needed()
