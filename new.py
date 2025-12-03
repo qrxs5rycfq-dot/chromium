@@ -10423,137 +10423,97 @@ class Account:
                     await page.keyboard.press('Enter')
                     print("   ⌨️ Enter key pressed")
 
-                # ========== STRICT SUCCESS DETECTION WITH RETRY ==========
-                print("   ⏳ Waiting for OTP result with STRICT verification...")
+                # ========== CONTINUOUS PAGE DETECTION LOOP ==========
+                # Loop through pages until we reach home or detect suspend
+                print("   ⏳ Starting continuous page detection...")
                 
-                max_wait_time = 45
+                max_total_time = 120  # Maximum 2 minutes for entire flow
                 start_time = asyncio.get_event_loop().time()
-                consecutive_success_checks = 0
-                required_consecutive_success = 2
+                loading_stuck_count = 0
+                same_state_count = 0
                 last_state = None
-                stuck_count = 0
-                loading_stuck_count = 0  # Track stuck loading state
                 
-                while (asyncio.get_event_loop().time() - start_time) < max_wait_time:
+                while (asyncio.get_event_loop().time() - start_time) < max_total_time:
                     current_time = asyncio.get_event_loop().time() - start_time
+                    print(f"\n   🔍 Page check at {current_time:.1f}s...")
                     
-                    print(f"   🔍 Strict check at {current_time:.1f}s...")
-                    
-                    # ========== CHECK FOR SUSPENDED ACCOUNT FIRST ==========
-                    if await self._is_account_suspended(page):
-                        print("   🚫 Account suspended detected!")
-                        suspend_info = await self._handle_suspended_account(page)
-                        self.status = 5  # New status for suspended
-                        return False
-                    
-                    # Check for loading state first
+                    # 1. Wait for page loading to complete (including button loading)
                     if await self._is_page_loading(page):
                         loading_stuck_count += 1
-                        print(f"   ⚠️ Page still loading ({loading_stuck_count}/5)...")
-                        consecutive_success_checks = 0
+                        print(f"   ⏳ Page/button loading... ({loading_stuck_count}/10)")
                         
-                        # If stuck loading for too long, reload and re-enter
-                        if loading_stuck_count >= 5:
-                            print("   🔄 Loading stuck, attempting reload...")
+                        if loading_stuck_count >= 10:
+                            print("   🔄 Loading stuck too long, attempting reload...")
                             reload_success = await self._handle_stuck_loading(page, otp_code)
                             if reload_success:
                                 loading_stuck_count = 0
                                 continue
                             else:
-                                if retry_count < max_retries:
-                                    retry_count += 1
-                                    break
-                                else:
-                                    return False
+                                break  # Exit to retry
                         
-                        await asyncio.sleep(3)
+                        await asyncio.sleep(2)
                         continue
                     else:
-                        loading_stuck_count = 0  # Reset if not loading
+                        if loading_stuck_count > 0:
+                            print(f"   ✅ Loading completed after {loading_stuck_count} checks")
+                        loading_stuck_count = 0
                     
-                    # ========== CHECK FOR STUCK STATE ==========
-                    current_state = await self._get_page_state(page)
-                    if current_state == last_state:
-                        stuck_count += 1
-                        print(f"   🚨 Stuck detection: {stuck_count}/3 (same state)")
-                        
-                        if stuck_count >= 3:
-                            print("   🔄 Page appears stuck, initiating reload with re-entry...")
-                            reload_success = await self._handle_stuck_loading(page, otp_code)
-                            if reload_success:
-                                stuck_count = 0
-                                last_state = None
-                                continue
-                            else:
-                                if retry_count < max_retries:
-                                    retry_count += 1
-                                    break  # Break out of inner loop to retry
-                                else:
-                                    print("   ❌ Max retries reached for stuck page")
-                                    return False
-                    else:
-                        stuck_count = 0
-                        last_state = current_state
+                    # 2. Check current page state
+                    current_url = page.url.lower()
+                    print(f"   🔗 URL: {current_url}")
                     
-                    # ========== CHECK FOR HUMAN CONFIRMATION PAGE ==========
-                    human_confirmation = await self._check_human_confirmation_page(page)
-                    if human_confirmation:
-                        print("   👤 Human confirmation page detected, handling...")
-                        result = await self._handle_human_confirmation(page)
-                        if result:
-                            print("   ✅ Human confirmation handled successfully")
-                            # After handling human confirmation, verify result
-                            post_result = await self._verify_post_otp_result(page)
-                            if post_result == 'success':
-                                return True
-                            elif post_result == 'suspended':
-                                self.status = 5
-                                return False
+                    # 3. CHECK: Are we on home page? = SUCCESS
+                    if await self._is_on_home_page(page):
+                        print("   🎉 SUCCESS: Reached home page!")
+                        return True
+                    
+                    # 4. CHECK: Is account suspended?
+                    if await self._is_account_suspended(page):
+                        print("   🚫 FAILED: Account suspended!")
+                        self.status = 5
+                        await self._handle_suspended_account(page)
+                        return False
+                    
+                    # 5. CHECK: Any form fields to fill?
+                    page_result = await self._detect_and_fill_current_page(page, otp_code)
+                    
+                    if page_result == 'filled':
+                        print("   ✅ Fields filled, waiting for loading to complete...")
+                        same_state_count = 0
+                        # Wait for loading after submit
+                        await self._wait_for_loading_complete(page, timeout=20)
+                        await asyncio.sleep(2)
+                        continue
+                    elif page_result == 'otp_entered':
+                        print("   ✅ OTP entered, waiting for loading to complete...")
+                        same_state_count = 0
+                        # Wait for loading after OTP submit
+                        await self._wait_for_loading_complete(page, timeout=20)
+                        await asyncio.sleep(2)
+                        continue
+                    elif page_result == 'no_fields':
+                        # No fields found - check if stuck
+                        current_state = await self._get_page_state(page)
+                        if current_state == last_state:
+                            same_state_count += 1
+                            print(f"   ⚠️ Same state detected ({same_state_count}/5)")
+                            
+                            if same_state_count >= 5:
+                                # Stuck on same page - try clicking any visible button
+                                print("   🔄 Stuck, trying to find action...")
+                                await self._try_unstuck_action(page)
+                                # Wait for loading after action
+                                await self._wait_for_loading_complete(page, timeout=15)
+                                same_state_count = 0
                         else:
-                            print("   ❌ Failed to handle human confirmation")
-                            if retry_count < max_retries:
-                                retry_count += 1
-                                break
-                            else:
-                                return False
+                            same_state_count = 0
+                            last_state = current_state
                     
-                    # STRICT success check
-                    is_success = await self._strict_success_check(page, current_time)
-                    
-                    if is_success:
-                        consecutive_success_checks += 1
-                        print(f"   ✅ Success indicator #{consecutive_success_checks}")
-                        
-                        if consecutive_success_checks >= required_consecutive_success:
-                            print("   🎉 CONSECUTIVE SUCCESS - OTP VERIFIED!")
-                            # Final verification
-                            if await self._final_verification(page):
-                                return True
-                            else:
-                                print("   ⚠️ Final verification failed, continuing...")
-                                consecutive_success_checks = 0
-                    else:
-                        consecutive_success_checks = 0
-                        print("   ❌ Not successful yet")
-                        
-                        # Check for failure
-                        if await self._is_definite_failure(page, current_time):
-                            if retry_count < max_retries:
-                                retry_count += 1
-                                break
-                            else:
-                                return False
-                    
-                    await asyncio.sleep(3)
+                    await asyncio.sleep(2)
                 
-                # If we break out of the inner loop due to timeout
-                if (asyncio.get_event_loop().time() - start_time) >= max_wait_time:
-                    print("   ⏰ Timeout reached in inner loop")
-                    if retry_count < max_retries:
-                        retry_count += 1
-                        continue
-                    else:
-                        return await self._final_verification(page)
+                # Timeout - do final verification
+                print("   ⏰ Timeout reached, doing final verification...")
+                return await self._final_verification(page)
                 
             except Exception as e:
                 logger.error(f"   ❌ OTP verification failed (attempt {retry_count + 1}): {e}")
@@ -10768,68 +10728,94 @@ class Account:
             return False
 
     async def _is_account_suspended(self, page) -> bool:
-        """Check if account is suspended/disabled after OTP verification"""
+        """Check if account is suspended/disabled after OTP verification
+        
+        IMPORTANT: Only call this AFTER page has fully loaded (not during loading state)
+        to avoid false positives from intermediate page states.
+        """
         try:
             current_url = page.url.lower()
             content = await page.content()
             content_lower = content.lower()
             
-            # URL patterns indicating suspension
+            # First check: If we're on a success page (home/feed), definitely not suspended
+            success_indicators = [
+                'instagram.com/explore',
+                'instagram.com/direct',
+                '/accounts/onetap/'  # One-tap login page is success
+            ]
+            # Check if URL indicates home/success
+            if 'instagram.com' in current_url and '/accounts/emailsignup' not in current_url:
+                # Could be on home page - check for feed elements
+                home_elements = await page.query_selector('nav, [role="navigation"], svg[aria-label="Home"]')
+                if home_elements:
+                    return False  # On home page, not suspended
+            
+            # URL patterns indicating suspension (must be specific to suspension pages)
             suspend_url_patterns = [
-                'suspended',
-                'disabled',
-                'appeal',
-                'help/instagram',
-                'blocked',
-                'restriction'
+                '/suspended',
+                '/disabled',
+                '/appeal',
+                '/blocked',
+                '/restriction',
+                '/challenge/action/suspended',
+                '/accounts/suspended'
             ]
             
             if any(pattern in current_url for pattern in suspend_url_patterns):
                 print("   🚫 ACCOUNT SUSPENDED - URL pattern detected")
                 return True
             
-            # Text indicators for suspended account
+            # Text indicators for suspended account - must be SPECIFIC phrases
+            # Avoid generic terms that might appear on normal pages
             suspend_text_indicators = [
-                'account has been disabled',
-                'account has been suspended',
+                'your account has been disabled',
+                'your account has been suspended',
                 'account is temporarily locked',
                 'your account was disabled',
                 'we suspended your account',
-                'account may have been compromised',
                 'we\'ve disabled your account',
-                'account was removed',
-                'account is disabled',
-                'account suspended',
-                'account blocked',
-                'violates our terms',
-                'community guidelines',
+                'your account was removed',
+                'your account is disabled',
+                'your account was suspended',
+                'we disable accounts',
                 'appeal this decision',
-                'request a review',
+                'request a review of this decision',
                 'akun anda telah dinonaktifkan',  # Indonesian
-                'akun ditangguhkan',
-                'akun diblokir'
+                'akun anda ditangguhkan',
+                'akun anda diblokir'
             ]
             
+            # Count how many indicators match (need at least 1 for explicit suspend phrases)
+            matched_indicators = []
             for indicator in suspend_text_indicators:
                 if indicator in content_lower:
-                    print(f"   🚫 ACCOUNT SUSPENDED - Text indicator: '{indicator}'")
-                    return True
+                    matched_indicators.append(indicator)
+            
+            if matched_indicators:
+                print(f"   🚫 ACCOUNT SUSPENDED - Text indicators found: {matched_indicators[:3]}")
+                return True
             
             # Check for specific suspended account page elements
+            # REMOVED: 'a[href*="help.instagram.com"]' - too generic, appears on many pages
             suspend_selectors = [
-                'text=Account Disabled',
-                'text=Account Suspended',
-                'text=Appeal',
+                'text="Your account has been disabled"',
+                'text="Your Account Has Been Disabled"',
+                'text="Account Suspended"',
                 'button:has-text("Request Review")',
                 'button:has-text("Appeal")',
-                'a[href*="help.instagram.com"]'
+                '[data-testid="suspended-account-banner"]'
             ]
             
             for selector in suspend_selectors:
                 try:
-                    if await page.query_selector(selector):
-                        print(f"   🚫 ACCOUNT SUSPENDED - Selector found: {selector}")
-                        return True
+                    element = await page.query_selector(selector)
+                    if element:
+                        # Double-check it's visible
+                        is_visible = await element.is_visible()
+                        if is_visible:
+                            print(f"   🚫 ACCOUNT SUSPENDED - Selector found: {selector}")
+                            return True
                 except Exception:
                     continue
             
@@ -10966,6 +10952,371 @@ class Account:
             logger.error(f"Error verifying post-OTP result: {e}")
             return 'unknown'
 
+    async def _detect_post_otp_fields(self, page) -> dict:
+        """Detect if there are additional fields to fill after OTP verification
+        
+        Some Instagram flows show fullname/username fields AFTER OTP verification.
+        Flow: Email → Password → Birthday → OTP → Full Name → Username
+        """
+        try:
+            fields = {}
+            
+            # Check if we're still on a signup-related page
+            current_url = page.url.lower()
+            if 'emailsignup' not in current_url and 'accounts' not in current_url:
+                return {}  # Not on signup page, no post-OTP fields
+            
+            # Look for fullname field (empty/unfilled)
+            fullname_selectors = [
+                'input[name="fullName"]',
+                'input[aria-label*="Full Name" i]',
+                'input[placeholder*="Full Name" i]',
+                'input[aria-label*="Nama Lengkap" i]',
+                'input[placeholder*="Nama Lengkap" i]',
+            ]
+            
+            for selector in fullname_selectors:
+                try:
+                    element = await page.query_selector(selector)
+                    if element:
+                        is_visible = await element.is_visible()
+                        current_value = await element.get_attribute('value') or ''
+                        if is_visible and not current_value.strip():
+                            fields['fullname'] = element
+                            print(f"   📝 Found empty fullname field: {selector}")
+                            break
+                except Exception:
+                    continue
+            
+            # Look for username field (empty/unfilled)
+            username_selectors = [
+                'input[name="username"]',
+                'input[aria-label*="Username" i]',
+                'input[placeholder*="Username" i]',
+                'input[aria-label*="Nama Pengguna" i]',
+                'input[placeholder*="Nama Pengguna" i]',
+            ]
+            
+            for selector in username_selectors:
+                try:
+                    element = await page.query_selector(selector)
+                    if element:
+                        is_visible = await element.is_visible()
+                        current_value = await element.get_attribute('value') or ''
+                        if is_visible and not current_value.strip():
+                            fields['username'] = element
+                            print(f"   📝 Found empty username field: {selector}")
+                            break
+                except Exception:
+                    continue
+            
+            # Only return if we found at least one field AND no OTP input visible
+            otp_input = await page.query_selector('input[placeholder*="Confirmation Code" i], input[aria-label*="Confirmation Code" i]')
+            if otp_input:
+                otp_visible = await otp_input.is_visible()
+                if otp_visible:
+                    return {}  # Still on OTP page, not post-OTP
+            
+            return fields
+            
+        except Exception as e:
+            logger.error(f"Error detecting post-OTP fields: {e}")
+            return {}
+
+    async def _fill_post_otp_fields(self, page, fields: dict) -> bool:
+        """Fill the additional fields that appear after OTP verification"""
+        try:
+            filled_count = 0
+            
+            # Fill fullname if found
+            if 'fullname' in fields:
+                try:
+                    element = fields['fullname']
+                    await element.click()
+                    await asyncio.sleep(0.3)
+                    await element.fill("")
+                    await asyncio.sleep(0.2)
+                    await element.type(self.full_name, delay=50)
+                    print(f"   ✅ POST-OTP: Filled full name: {self.full_name}")
+                    filled_count += 1
+                    await asyncio.sleep(0.5)
+                except Exception as e:
+                    print(f"   ⚠️ Failed to fill fullname: {e}")
+            
+            # Fill username if found
+            if 'username' in fields:
+                try:
+                    element = fields['username']
+                    await element.click()
+                    await asyncio.sleep(0.3)
+                    await element.fill("")
+                    await asyncio.sleep(0.2)
+                    await element.type(self.username, delay=50)
+                    print(f"   ✅ POST-OTP: Filled username: {self.username}")
+                    filled_count += 1
+                    await asyncio.sleep(0.5)
+                except Exception as e:
+                    print(f"   ⚠️ Failed to fill username: {e}")
+            
+            return filled_count > 0
+            
+        except Exception as e:
+            logger.error(f"Error filling post-OTP fields: {e}")
+            return False
+
+    async def _click_post_otp_continue(self, page) -> bool:
+        """Click continue/next button after filling post-OTP fields"""
+        try:
+            # Look for continue/next/signup buttons
+            button_selectors = [
+                'button:has-text("Continue")',
+                'button:has-text("Next")',
+                'button:has-text("Sign up")',
+                'button:has-text("Lanjutkan")',
+                'button:has-text("Daftar")',
+                'button[type="submit"]',
+            ]
+            
+            for selector in button_selectors:
+                try:
+                    button = await page.query_selector(selector)
+                    if button:
+                        is_visible = await button.is_visible()
+                        is_enabled = await button.is_enabled()
+                        if is_visible and is_enabled:
+                            await button.click()
+                            print(f"   ✅ POST-OTP: Clicked button: {selector}")
+                            return True
+                except Exception:
+                    continue
+            
+            # Fallback to Enter key
+            await page.keyboard.press('Enter')
+            print("   ⌨️ POST-OTP: Pressed Enter key")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error clicking post-OTP continue: {e}")
+            return False
+
+    async def _detect_and_fill_current_page(self, page, otp_code: str = None) -> str:
+        """
+        Detect what's on current page and fill any fields found.
+        
+        Returns:
+            'filled' - fields were filled and submitted
+            'otp_entered' - OTP code was entered
+            'no_fields' - no fillable fields found
+            'error' - error occurred
+        """
+        try:
+            print("   📋 Detecting current page fields...")
+            
+            # ========== 1. CHECK FOR OTP INPUT ==========
+            otp_input = await page.query_selector('input[placeholder*="Confirmation Code" i], input[aria-label*="Confirmation Code" i], input[placeholder*="Kode Konfirmasi" i]')
+            if otp_input:
+                is_visible = await otp_input.is_visible()
+                current_value = await otp_input.get_attribute('value') or ''
+                
+                if is_visible and not current_value.strip() and otp_code:
+                    print("   📧 OTP input found - entering code...")
+                    await otp_input.click()
+                    await asyncio.sleep(0.3)
+                    await otp_input.fill("")
+                    await asyncio.sleep(0.2)
+                    await otp_input.type(otp_code, delay=80)
+                    await asyncio.sleep(0.5)
+                    
+                    # Click submit
+                    submit_btn = await page.query_selector('button:has-text("Continue"), button:has-text("Next"), button[type="submit"], button:has-text("Confirm")')
+                    if submit_btn:
+                        await submit_btn.click()
+                    else:
+                        await page.keyboard.press('Enter')
+                    
+                    return 'otp_entered'
+            
+            # ========== 2. CHECK FOR STANDARD FORM FIELDS ==========
+            fields_found = {}
+            fields_filled = 0
+            
+            # Email field
+            email_selectors = ['input[name="emailOrPhone"]', 'input[aria-label*="Email" i]', 'input[placeholder*="Email" i]', 'input[type="email"]']
+            for selector in email_selectors:
+                el = await page.query_selector(selector)
+                if el and await el.is_visible():
+                    val = await el.get_attribute('value') or ''
+                    if not val.strip():
+                        fields_found['email'] = el
+                        break
+            
+            # Password field
+            password_selectors = ['input[name="password"]', 'input[aria-label*="Password" i]', 'input[placeholder*="Password" i]', 'input[type="password"]']
+            for selector in password_selectors:
+                el = await page.query_selector(selector)
+                if el and await el.is_visible():
+                    val = await el.get_attribute('value') or ''
+                    if not val.strip():
+                        fields_found['password'] = el
+                        break
+            
+            # Full name field
+            fullname_selectors = ['input[name="fullName"]', 'input[aria-label*="Full Name" i]', 'input[placeholder*="Full Name" i]', 'input[aria-label*="Nama Lengkap" i]']
+            for selector in fullname_selectors:
+                el = await page.query_selector(selector)
+                if el and await el.is_visible():
+                    val = await el.get_attribute('value') or ''
+                    if not val.strip():
+                        fields_found['fullname'] = el
+                        break
+            
+            # Username field
+            username_selectors = ['input[name="username"]', 'input[aria-label*="Username" i]', 'input[placeholder*="Username" i]', 'input[aria-label*="Nama Pengguna" i]']
+            for selector in username_selectors:
+                el = await page.query_selector(selector)
+                if el and await el.is_visible():
+                    val = await el.get_attribute('value') or ''
+                    if not val.strip():
+                        fields_found['username'] = el
+                        break
+            
+            # Birthday fields (month, day, year) - only select/combobox
+            birthday_selectors = [
+                ('month', 'select[aria-label*="Month" i], select[title*="Month" i], [role="combobox"][aria-label*="Month" i]'),
+                ('day', 'select[aria-label*="Day" i], select[title*="Day" i], [role="combobox"][aria-label*="Day" i]'),
+                ('year', 'select[aria-label*="Year" i], select[title*="Year" i], [role="combobox"][aria-label*="Year" i]'),
+            ]
+            
+            for field_type, selector in birthday_selectors:
+                el = await page.query_selector(selector)
+                if el and await el.is_visible():
+                    # Check if it's at default value
+                    tag = await el.evaluate('el => el.tagName.toLowerCase()')
+                    if tag == 'select':
+                        selected_index = await el.evaluate('el => el.selectedIndex')
+                        if selected_index == 0:  # Usually first option is placeholder
+                            fields_found[field_type] = el
+                    else:
+                        fields_found[field_type] = el
+            
+            print(f"   📊 Fields found: {list(fields_found.keys())}")
+            
+            if not fields_found:
+                return 'no_fields'
+            
+            # ========== 3. FILL THE FIELDS ==========
+            if 'email' in fields_found:
+                try:
+                    el = fields_found['email']
+                    await el.click()
+                    await asyncio.sleep(0.2)
+                    await el.fill(self.email_new)
+                    print(f"   ✅ Filled email: {self.email_new}")
+                    fields_filled += 1
+                except Exception as e:
+                    print(f"   ⚠️ Failed to fill email: {e}")
+            
+            if 'password' in fields_found:
+                try:
+                    el = fields_found['password']
+                    await el.click()
+                    await asyncio.sleep(0.2)
+                    await el.fill(self.password)
+                    print(f"   ✅ Filled password")
+                    fields_filled += 1
+                except Exception as e:
+                    print(f"   ⚠️ Failed to fill password: {e}")
+            
+            if 'fullname' in fields_found:
+                try:
+                    el = fields_found['fullname']
+                    await el.click()
+                    await asyncio.sleep(0.2)
+                    await el.fill(self.full_name)
+                    print(f"   ✅ Filled fullname: {self.full_name}")
+                    fields_filled += 1
+                except Exception as e:
+                    print(f"   ⚠️ Failed to fill fullname: {e}")
+            
+            if 'username' in fields_found:
+                try:
+                    el = fields_found['username']
+                    await el.click()
+                    await asyncio.sleep(0.2)
+                    await el.fill(self.username)
+                    print(f"   ✅ Filled username: {self.username}")
+                    fields_filled += 1
+                except Exception as e:
+                    print(f"   ⚠️ Failed to fill username: {e}")
+            
+            # Fill birthday fields
+            if any(k in fields_found for k in ['month', 'day', 'year']):
+                birthday_filled = await self._fill_birthday_fields_v3(page)
+                if birthday_filled:
+                    print("   ✅ Filled birthday fields")
+                    fields_filled += 1
+            
+            if fields_filled > 0:
+                # Wait for button to be ready (not loading)
+                print("   ⏳ Waiting for submit button to be ready...")
+                await self._wait_for_button_ready(page, timeout=10)
+                
+                # Click submit button
+                await asyncio.sleep(0.5)
+                clicked = await self._click_post_otp_continue(page)
+                
+                if clicked:
+                    # Wait a moment for loading to start
+                    await asyncio.sleep(1)
+                
+                return 'filled'
+            
+            return 'no_fields'
+            
+        except Exception as e:
+            logger.error(f"Error detecting/filling page: {e}")
+            return 'error'
+
+    async def _try_unstuck_action(self, page) -> bool:
+        """Try to unstuck page by clicking any visible action button"""
+        try:
+            # Look for any clickable button that might progress the flow
+            button_selectors = [
+                'button:has-text("Continue")',
+                'button:has-text("Next")',
+                'button:has-text("Lanjutkan")',
+                'button:has-text("OK")',
+                'button:has-text("Done")',
+                'button:has-text("Confirm")',
+                'button[type="submit"]',
+            ]
+            
+            for selector in button_selectors:
+                try:
+                    button = await page.query_selector(selector)
+                    if button:
+                        is_visible = await button.is_visible()
+                        is_enabled = await button.is_enabled()
+                        if is_visible and is_enabled:
+                            btn_text = await button.text_content()
+                            # Skip known skip words
+                            skip_words = ['why', 'learn', 'help', 'terms', 'privacy', 'back', 'cancel']
+                            if not any(sw in (btn_text or '').lower() for sw in skip_words):
+                                await button.click()
+                                print(f"   🔄 Unstuck: Clicked '{btn_text}'")
+                                return True
+                except Exception:
+                    continue
+            
+            # Try pressing Enter
+            await page.keyboard.press('Enter')
+            print("   🔄 Unstuck: Pressed Enter")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error trying unstuck action: {e}")
+            return False
+
     async def _is_on_checkpoint_page(self, page) -> bool:
         """Check if we're on Instagram checkpoint/challenge page"""
         try:
@@ -11019,17 +11370,160 @@ class Account:
             return False
 
     async def _is_page_loading(self, page) -> bool:
-        """Check if page is in loading state"""
-        loading_indicators = [
-            # Loading spinners
-            await page.query_selector('[aria-busy="true"], [class*="loading"], [class*="spinner"], ._a9_1'),
-            # Instagram specific loading
-            await page.query_selector('svg[aria-label="Loading..."]'),
-            # Network requests
-            page.url.endswith('/loading/') or 'loading' in page.url.lower(),
-        ]
-        
-        return any(loading_indicators)
+        """Check if page is in loading state - comprehensive detection"""
+        try:
+            # ========== 1. PAGE-LEVEL LOADING INDICATORS ==========
+            page_loading_selectors = [
+                # General loading spinners
+                '[aria-busy="true"]',
+                '[class*="loading"]',
+                '[class*="spinner"]',
+                '[class*="Loading"]',
+                '[class*="Spinner"]',
+                '._a9_1',  # Instagram specific
+                
+                # SVG loading indicators
+                'svg[aria-label="Loading..."]',
+                'svg[aria-label="Loading"]',
+                'svg[aria-label*="loading" i]',
+                
+                # Skeleton/placeholder loading
+                '[class*="skeleton"]',
+                '[class*="Skeleton"]',
+                '[class*="placeholder"]',
+                
+                # Progress indicators
+                '[role="progressbar"]',
+                '[class*="progress"]',
+            ]
+            
+            for selector in page_loading_selectors:
+                try:
+                    el = await page.query_selector(selector)
+                    if el:
+                        is_visible = await el.is_visible()
+                        if is_visible:
+                            return True
+                except Exception:
+                    continue
+            
+            # ========== 2. BUTTON LOADING INDICATORS ==========
+            # Check if any submit button is in loading state
+            button_selectors = [
+                'button[type="submit"]',
+                'button:has-text("Continue")',
+                'button:has-text("Next")',
+                'button:has-text("Sign up")',
+                'button:has-text("Confirm")',
+            ]
+            
+            for selector in button_selectors:
+                try:
+                    button = await page.query_selector(selector)
+                    if button:
+                        # Check if button is disabled (loading state)
+                        is_disabled = await button.is_disabled()
+                        
+                        # Check for spinner inside button
+                        spinner_inside = await button.query_selector('[class*="spinner"], [class*="loading"], svg[aria-label*="loading" i]')
+                        
+                        # Check aria-busy on button
+                        aria_busy = await button.get_attribute('aria-busy')
+                        
+                        # Check for loading class on button
+                        button_class = await button.get_attribute('class') or ''
+                        has_loading_class = 'loading' in button_class.lower() or 'disabled' in button_class.lower()
+                        
+                        if is_disabled or spinner_inside or aria_busy == 'true' or has_loading_class:
+                            return True
+                except Exception:
+                    continue
+            
+            # ========== 3. URL-BASED LOADING ==========
+            if page.url.endswith('/loading/') or '/loading' in page.url.lower():
+                return True
+            
+            # ========== 4. DOCUMENT READY STATE ==========
+            try:
+                ready_state = await page.evaluate('document.readyState')
+                if ready_state != 'complete':
+                    return True
+            except Exception:
+                pass
+            
+            return False
+            
+        except Exception as e:
+            logger.error(f"Error checking loading state: {e}")
+            return False
+
+    async def _wait_for_loading_complete(self, page, timeout: int = 30) -> bool:
+        """Wait until page loading is complete"""
+        try:
+            start_time = asyncio.get_event_loop().time()
+            check_count = 0
+            
+            while (asyncio.get_event_loop().time() - start_time) < timeout:
+                check_count += 1
+                
+                if not await self._is_page_loading(page):
+                    # Double check after short delay
+                    await asyncio.sleep(0.5)
+                    if not await self._is_page_loading(page):
+                        print(f"   ✅ Loading complete after {check_count} checks")
+                        return True
+                
+                elapsed = asyncio.get_event_loop().time() - start_time
+                print(f"   ⏳ Waiting for loading... ({elapsed:.1f}s)")
+                await asyncio.sleep(2)
+            
+            print(f"   ⚠️ Loading timeout after {timeout}s")
+            return False
+            
+        except Exception as e:
+            logger.error(f"Error waiting for loading: {e}")
+            return False
+
+    async def _wait_for_button_ready(self, page, button_selector: str = None, timeout: int = 15) -> bool:
+        """Wait for submit button to be ready (not loading/disabled)"""
+        try:
+            start_time = asyncio.get_event_loop().time()
+            
+            # Default button selectors if not specified
+            if not button_selector:
+                button_selectors = [
+                    'button[type="submit"]',
+                    'button:has-text("Continue")',
+                    'button:has-text("Next")',
+                    'button:has-text("Sign up")',
+                ]
+            else:
+                button_selectors = [button_selector]
+            
+            while (asyncio.get_event_loop().time() - start_time) < timeout:
+                for selector in button_selectors:
+                    try:
+                        button = await page.query_selector(selector)
+                        if button:
+                            is_visible = await button.is_visible()
+                            is_enabled = await button.is_enabled()
+                            
+                            # Check for loading state inside button
+                            spinner = await button.query_selector('[class*="spinner"], [class*="loading"]')
+                            aria_busy = await button.get_attribute('aria-busy')
+                            
+                            if is_visible and is_enabled and not spinner and aria_busy != 'true':
+                                return True
+                    except Exception:
+                        continue
+                
+                await asyncio.sleep(1)
+            
+            return False
+            
+        except Exception as e:
+            logger.error(f"Error waiting for button: {e}")
+            return False
 
     async def _strict_success_check(self, page, elapsed_time: float) -> bool:
         """STRICT success verification - FIXED untuk menghindari false positive"""
@@ -11121,12 +11615,24 @@ class Account:
         
         # Still on OTP page after long time with no progress
         if any(url in current_url for url in ['challenge', 'verify', 'emailsignup']) and elapsed_time > 25:
+            # BUT check if this is a post-OTP page with fullname/username fields
+            post_otp_fields = await self._detect_post_otp_fields(page)
+            if post_otp_fields:
+                print(f"   📝 Not failure - POST-OTP page with fields: {list(post_otp_fields.keys())}")
+                return False  # Not a failure, just needs more fields
+            
             print("   ❌ DEFINITE FAILURE: Stuck on verification page >25s")
             return True
         
         # OTP field disappeared but we're not on success page
         otp_field = await page.query_selector('input[placeholder*="Confirmation Code" i]')
         if not otp_field and any(url in current_url for url in ['challenge', 'verify', 'emailsignup']):
+            # Check if this is a post-OTP page with fullname/username fields
+            post_otp_fields = await self._detect_post_otp_fields(page)
+            if post_otp_fields:
+                print(f"   📝 Not failure - POST-OTP page with fields: {list(post_otp_fields.keys())}")
+                return False  # Not a failure, just needs more fields
+            
             # Check if we have success indicators
             if not await self._strict_success_check(page, elapsed_time):
                 print("   ❌ DEFINITE FAILURE: OTP field gone but no success indicators")
@@ -11146,6 +11652,36 @@ class Account:
         
         print(f"   🔗 Final URL: {current_url}")
         print(f"   📄 Final title: {current_title}")
+        
+        # ========== CHECK FOR POST-OTP ADDITIONAL FIELDS PAGE ==========
+        # Some flows: Email → Password → Birthday → OTP → NEW PAGE for Full Name + Username
+        post_otp_fields = await self._detect_post_otp_fields(page)
+        if post_otp_fields:
+            print(f"   📝 POST-OTP PAGE: Additional fields required: {list(post_otp_fields.keys())}")
+            
+            # Fill the fields
+            await self._fill_post_otp_fields(page, post_otp_fields)
+            
+            # Click continue/next
+            await self._click_post_otp_continue(page)
+            
+            # Wait for next page
+            await asyncio.sleep(4)
+            
+            # Re-check - might need to fill more fields or might be done
+            current_url = page.url.lower()
+            print(f"   🔗 After POST-OTP fields URL: {current_url}")
+            
+            # Check again for more fields (might be multi-step)
+            more_fields = await self._detect_post_otp_fields(page)
+            if more_fields:
+                print(f"   📝 More POST-OTP fields: {list(more_fields.keys())}")
+                await self._fill_post_otp_fields(page, more_fields)
+                await self._click_post_otp_continue(page)
+                await asyncio.sleep(4)
+        
+        # Re-fetch URL after potential post-OTP handling
+        current_url = page.url.lower()
         
         # REAL-WORLD SUCCESS CRITERIA (berdasarkan pengalaman bisa login)
         success_indicators = [
