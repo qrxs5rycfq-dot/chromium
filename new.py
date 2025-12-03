@@ -75,6 +75,35 @@ logger.setLevel(logging.INFO)
 warnings.filterwarnings("ignore", category=RuntimeWarning,
                        message=".*HTTPS request is being sent through an HTTPS proxy.*")
 
+# ============================================================================
+# FIELD PATTERNS FOR DYNAMIC FORM DETECTION
+# Multi-language support for placeholder/aria-label based field mapping
+# ============================================================================
+FIELD_PATTERNS = {
+    'month': ['month', 'bulan', 'mes', 'mois', 'mm', 'monat', 'mese', 'ماه', '月'],
+    'day': ['day', 'hari', 'dia', 'jour', 'dd', 'tag', 'giorno', 'روز', '日'],
+    'year': ['year', 'tahun', 'año', 'année', 'yyyy', 'jahr', 'anno', 'سال', '年'],
+    'email': ['email', 'phone', 'mobile', 'emailorphone', 'email or phone', 'email address', 
+              'phone number', 'email atau telepon', 'correo electrónico', 'e-mail'],
+    'password': ['password', 'kata sandi', 'contraseña', 'mot de passe', 'passwort', 'sandi'],
+    'fullname': ['full name', 'nama lengkap', 'nombre completo', 'nom complet', 'vollständiger name', 
+                 'name', 'nama', 'nombre'],
+    'username': ['username', 'nama pengguna', 'usuario', 'nom d\'utilisateur', 'benutzername', 
+                 'user name', 'user']
+}
+
+# Month names for smart field value selection
+MONTH_NAMES = {
+    'en': ['January', 'February', 'March', 'April', 'May', 'June', 
+           'July', 'August', 'September', 'October', 'November', 'December'],
+    'id': ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
+           'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'],
+    'es': ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+           'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'],
+    'short': ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 
+              'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+}
+
 class AdvancedSecurityManager:
     """Enhanced security manager tanpa menghilangkan fitur existing"""
     
@@ -7111,17 +7140,38 @@ class Account:
 
     async def _process_version_1(self, page, email: str, password: str, full_name: str, username: str, 
                             birth_year: int, birth_month: int, birth_day: int, form_version: str) -> bool:
-        """Process Version 1: All fields in one form (YOUR EXISTING CODE)"""
+        """Process Version 1: All fields in one form with enhanced dynamic detection"""
         print("   📝 Processing Version 1 form...")
         
-        # ========== FORM DETECTION ==========
-        print("   🔍 Form field detection...")
+        # ========== ENHANCED DYNAMIC FORM DETECTION ==========
+        print("   🔍 Starting enhanced dynamic form field detection...")
         
         await asyncio.sleep(3)
         
         field_mapping = {}
         
-        print("   🎯 Direct attribute matching...")
+        # ========== STEP 1: Use new dynamic detection ==========
+        print("   🔄 Step 1: Enhanced dynamic detection using FIELD_PATTERNS...")
+        
+        detected_fields = await self._detect_form_fields_dynamically(page)
+        
+        # Map detected fields to our internal naming
+        field_name_mapping = {
+            'email': 'email_field',
+            'password': 'password_field',
+            'fullname': 'name_field',
+            'username': 'username_field'
+        }
+        
+        for detected_type, internal_name in field_name_mapping.items():
+            if detected_type in detected_fields:
+                field_mapping[internal_name] = detected_fields[detected_type]
+                print(f"   ✅ {internal_name} detected via dynamic detection")
+        
+        print(f"   📊 Dynamic detection found {len(field_mapping)} fields (confidence: {detected_fields.get('confidence', 0):.1%})")
+        
+        # ========== STEP 2: Fallback to direct attribute matching ==========
+        print("   🎯 Step 2: Direct attribute matching for missing fields...")
         
         field_selectors = {
             'email_field': [
@@ -7148,17 +7198,19 @@ class Account:
         }
         
         for field_type, selectors in field_selectors.items():
-            for selector in selectors:
-                try:
-                    element = await page.query_selector(selector)
-                    if element and await element.is_visible():
-                        field_mapping[field_type] = element
-                        print("   ✅ %s found with: %s", field_type, selector)
-                        break
-                except Exception:
-                    continue
+            if field_type not in field_mapping:  # Only search for missing fields
+                for selector in selectors:
+                    try:
+                        element = await page.query_selector(selector)
+                        if element and await element.is_visible():
+                            field_mapping[field_type] = element
+                            print(f"   ✅ {field_type} found with: {selector}")
+                            break
+                    except Exception:
+                        continue
         
-        print("   📍 Position-based detection...")
+        # ========== STEP 3: Position-based detection for remaining fields ==========
+        print("   📍 Step 3: Position-based detection for remaining fields...")
         
         all_inputs = await page.query_selector_all('input:not([type="hidden"])')
         visible_inputs = []
@@ -7178,7 +7230,7 @@ class Account:
         
         visible_inputs.sort(key=lambda x: x['y'])
         
-        print("   📊 Found %d visible inputs", len(visible_inputs))
+        print(f"   📊 Found {len(visible_inputs)} visible inputs")
         
         position_mapping = {
             0: 'email_field',
@@ -7191,7 +7243,7 @@ class Account:
             field_type = position_mapping.get(i)
             if field_type and field_type not in field_mapping:
                 field_mapping[field_type] = inp_data['element']
-                print("   ✅ %s mapped by position %d", field_type, i)
+                print(f"   ✅ {field_type} mapped by position {i}")
         
         # ========== BIRTHDAY FIELD DETECTION ==========
         birthday_success = await self._fill_birthday_fields_v3(page, birth_year, birth_month, birth_day, form_version)
@@ -7356,16 +7408,13 @@ class Account:
                 print("   ⚠️ Screenshot skipped: %s", e)
             return False
 
-        # ========== BUTTON DETECTION & SUBMISSION ==========
+        # ========== ENHANCED BUTTON DETECTION & SUBMISSION ==========
         print("")
-        print("   🔎 Button detection...")
+        print("   🔎 Enhanced button detection with scroll support...")
 
-        print("   📜 Scrolling to bottom to reveal Sign up button...")
-        await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-        await asyncio.sleep(2)
-        
-        # Scroll a bit more to ensure button is fully visible
-        await page.evaluate("window.scrollBy(0, 100)")
+        # First, scroll to ensure all elements are visible
+        print("   📜 Scrolling to reveal all buttons...")
+        await self._scroll_page_to_bottom(page)
         await asyncio.sleep(1)
         
         try:
@@ -7373,223 +7422,147 @@ class Account:
         except Exception as e:
             print("   ⚠️ Screenshot skipped: %s", e)
 
-        submit_button = None
-
-        # Strategy 1: Instagram's specific button patterns
-        instagram_button_selectors = [
-            'button[type="submit"]',
-            'button._acan._acap._acas',
-            'button._aact',
-            'button:has-text("Sign up")',
-            'button:has-text("Sign Up")',
-            'button:has-text("Submit")',
-        ]
-
-        for selector in instagram_button_selectors:
-            try:
-                buttons = await page.query_selector_all(selector)
-                for button in buttons:
-                    try:
-                        # SCROLL EACH BUTTON INTO VIEW before checking visibility
-                        await button.scroll_into_view_if_needed()
-                        await asyncio.sleep(0.5)
-                        
-                        if await button.is_visible() and await button.is_enabled():
-                            button_text = (await button.text_content() or "").strip()
-                            print(f"   🔘 Found candidate: '{button_text}' with {selector}")
-                            
-                            # Validate it's actually a submit button
-                            if button_text and any(word in button_text.lower() for word in ['sign up', 'submit', 'next', 'continue']):
-                                submit_button = button
-                                print(f"   ✅ SELECTED submit button: '{button_text}'")
-                                break
-                    except Exception:
-                        continue
-                if submit_button:
-                    break
-            except Exception:
-                continue
-
-        # Strategy 2: If not found, try scrolling and searching again
-        if not submit_button:
-            print("   🔄 Strategy 2: Additional scrolling and search...")
+        # Use enhanced button detection for signup step
+        submit_success = await self._detect_and_click_submit_button(page, "signup")
+        
+        if not submit_success:
+            print("   🔄 Fallback: Legacy button detection strategies...")
             
-            # Scroll to very bottom and search again
-            await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-            await asyncio.sleep(2)
-            
-            all_buttons = await page.query_selector_all('button, [role="button"]')
-            for button in all_buttons:
+            submit_button = None
+
+            # Strategy 1: Instagram's specific button patterns
+            instagram_button_selectors = [
+                'button[type="submit"]',
+                'button._acan._acap._acas',
+                'button._aact',
+                'button:has-text("Sign up")',
+                'button:has-text("Sign Up")',
+                'button:has-text("Submit")',
+                'button:has-text("Daftar")',  # Indonesian
+                'button:has-text("Next")',
+                'button:has-text("Lanjut")',  # Indonesian
+            ]
+
+            for selector in instagram_button_selectors:
                 try:
-                    await button.scroll_into_view_if_needed()
-                    await asyncio.sleep(0.3)
-                    
-                    if await button.is_visible() and await button.is_enabled():
-                        button_text = (await button.text_content() or "").strip().lower()
-                        print(f"   🔘 Button after scroll: '{button_text}'")
-                        
-                        if any(word in button_text for word in ['sign up', 'submit', 'next', 'continue']):
-                            submit_button = button
-                            print(f"   ✅ SELECTED button after scroll: '{button_text}'")
-                            break
+                    buttons = await page.query_selector_all(selector)
+                    for button in buttons:
+                        try:
+                            # SCROLL EACH BUTTON INTO VIEW before checking visibility
+                            await button.scroll_into_view_if_needed()
+                            await asyncio.sleep(0.5)
+                            
+                            if await button.is_visible() and await button.is_enabled():
+                                button_text = (await button.text_content() or "").strip()
+                                print(f"   🔘 Found candidate: '{button_text}' with {selector}")
+                                
+                                # Validate it's actually a submit button
+                                if button_text and any(word in button_text.lower() for word in ['sign up', 'submit', 'next', 'continue', 'daftar', 'lanjut']):
+                                    submit_button = button
+                                    print(f"   ✅ SELECTED submit button: '{button_text}'")
+                                    break
+                        except Exception:
+                            continue
+                    if submit_button:
+                        break
                 except Exception:
                     continue
 
-        # Strategy 3: Look for buttons inside form (with scroll)
-        if not submit_button:
-            print("   🔍 Strategy 3: Looking for buttons inside forms...")
-            forms = await page.query_selector_all('form')
-            for form in forms:
-                form_buttons = await form.query_selector_all('button:not([disabled])')
-                for button in form_buttons:
+            # Strategy 2: If not found, try scrolling and searching again
+            if not submit_button:
+                print("   🔄 Strategy 2: Additional scrolling and search...")
+                
+                # Scroll to very bottom and search again
+                await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+                await asyncio.sleep(2)
+                
+                all_buttons = await page.query_selector_all('button, [role="button"]')
+                for button in all_buttons:
                     try:
                         await button.scroll_into_view_if_needed()
                         await asyncio.sleep(0.3)
                         
-                        if await button.is_visible():
-                            button_text = (await button.text_content() or "").strip()
-                            print(f"   🔘 Form button: '{button_text}'")
-                            if not submit_button and button_text:
+                        if await button.is_visible() and await button.is_enabled():
+                            button_text = (await button.text_content() or "").strip().lower()
+                            print(f"   🔘 Button after scroll: '{button_text}'")
+                            
+                            if any(word in button_text for word in ['sign up', 'submit', 'next', 'continue', 'daftar', 'lanjut']):
                                 submit_button = button
-                    except Exception:
-                        continue
-
-        # Strategy 4: Focus on the actual "Sign up" text with aggressive scrolling
-        if not submit_button:
-            print("   🔍 Strategy 4: Aggressive scroll for 'Sign up' text...")
-            
-            # Scroll multiple times to ensure we cover the entire page
-            for scroll_attempt in range(3):
-                print(f"   📜 Scroll attempt {scroll_attempt + 1}...")
-                await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-                await asyncio.sleep(1)
-                
-                submit_elements = await page.query_selector_all('button, [role="button"]')
-                for element in submit_elements:
-                    try:
-                        await element.scroll_into_view_if_needed()
-                        await asyncio.sleep(0.2)
-                        
-                        if await element.is_visible() and await element.is_enabled():
-                            element_text = (await element.text_content() or "").strip().lower()
-                            if element_text and 'sign up' in element_text:
-                                submit_button = element
-                                print(f"   ✅ Found by text after scroll: '{element_text}'")
+                                print(f"   ✅ SELECTED button after scroll: '{button_text}'")
                                 break
                     except Exception:
                         continue
-                if submit_button:
-                    break
 
-        # DEBUG: Log all buttons for analysis (after scrolling)
-        if not submit_button:
-            print("   🐛 DEBUG: Listing ALL buttons after scrolling...")
-            await page.evaluate("window.scrollTo(0, 0)")  # Start from top
-            await asyncio.sleep(1)
-            
-            all_buttons = await page.query_selector_all('button, [role="button"]')
-            print("   📊 Total buttons found: %d", len(all_buttons))
-            
-            for i, btn in enumerate(all_buttons):
+            # Strategy 3: Look for buttons inside form (with scroll)
+            if not submit_button:
+                print("   🔍 Strategy 3: Looking for buttons inside forms...")
+                forms = await page.query_selector_all('form')
+                for form in forms:
+                    form_buttons = await form.query_selector_all('button:not([disabled])')
+                    for button in form_buttons:
+                        try:
+                            await button.scroll_into_view_if_needed()
+                            await asyncio.sleep(0.3)
+                            
+                            if await button.is_visible():
+                                button_text = (await button.text_content() or "").strip()
+                                print(f"   🔘 Form button: '{button_text}'")
+                                if not submit_button and button_text:
+                                    submit_button = button
+                        except Exception:
+                            continue
+
+            # Click the found button
+            if submit_button:
                 try:
-                    # Scroll to each button to check visibility
+                    await submit_button.scroll_into_view_if_needed()
+                    await asyncio.sleep(0.3)
+                    await submit_button.click()
+                    submit_success = True
+                    print("   ✅ Clicked legacy submit button")
+                except Exception as e:
+                    print(f"   ⚠️ Click failed: {e}")
+                    try:
+                        await submit_button.evaluate("el => el.click()")
+                        submit_success = True
+                        print("   ✅ Clicked via JS")
+                    except Exception:
+                        pass
+        
+        if not submit_success:
+            # Final fallback: Press Enter
+            print("   🔄 Final fallback: Pressing Enter key...")
+            await page.keyboard.press('Enter')
+            submit_success = True
+            print("   ✅ Pressed Enter key")
+        
+        if not submit_success:
+            print("   ❌ All button detection strategies failed")
+            
+            # DEBUG: Log all buttons for analysis
+            print("   🐛 DEBUG: Listing ALL buttons...")
+            all_buttons = await page.query_selector_all('button, [role="button"]')
+            print(f"   📊 Total buttons found: {len(all_buttons)}")
+            
+            for i, btn in enumerate(all_buttons[:10]):  # Limit to first 10
+                try:
                     await btn.scroll_into_view_if_needed()
-                    await asyncio.sleep(0.2)
+                    await asyncio.sleep(0.1)
                     
                     is_visible = await btn.is_visible()
                     is_enabled = await btn.is_enabled()
-                    btn_text = await btn.text_content() or ""
-                    btn_class = await btn.get_attribute('class') or ""
+                    btn_text = (await btn.text_content() or "").strip()[:50]
                     
-                    print("   🔘 Button %d: visible=%s, enabled=%s, text='%s', class='%s'", 
-                            i, is_visible, is_enabled, btn_text.strip(), btn_class[:50])
-                    
-                    # Also check position
-                    bbox = await btn.bounding_box()
-                    if bbox:
-                        print("   📍 Position: Y=%d", bbox['y'])
+                    print(f"   🔘 Button {i}: visible={is_visible}, enabled={is_enabled}, text='{btn_text}'")
                         
                 except Exception as e:
-                    print("   🔘 Button %d: error - %s", i, e)
+                    print(f"   🔘 Button {i}: error - {e}")
             
             try:
-                await page.screenshot(path="./debug_no_button_after_scroll.png")
+                await page.screenshot(path="./debug_no_button_found.png")
             except Exception as e:
                 print("   ⚠️ Screenshot skipped: %s", e)
             
-            # Save page HTML for analysis
-            page_html = await page.content()
-            with open("./debug_page_after_scroll.html", "w", encoding="utf-8") as f:
-                f.write(page_html)
-            print("   📄 Page HTML saved for analysis")
-            
-            return False
-
-        # ========== FIXED BUTTON CLICKING WITH SCROLL VERIFICATION ==========
-        try:
-            print("   🖱️ FIXED Button clicking with scroll...")
-            
-            # Ensure button is in view ONE MORE TIME before clicking
-            await submit_button.scroll_into_view_if_needed()
-            await asyncio.sleep(1)
-            
-            # Get final button info
-            button_text = await submit_button.text_content() or ""
-            is_enabled = await submit_button.is_enabled()
-            
-            print("   🔘 Final button: '%s' (enabled: %s)", button_text.strip(), is_enabled)
-            
-            if not is_enabled:
-                logger.error("   ❌ Button is disabled, checking why...")
-                
-                # Check for validation errors that might be preventing submission
-                error_elements = await page.query_selector_all('[aria-invalid="true"], [class*="error"]')
-                for err in error_elements:
-                    error_text = await err.text_content()
-                    if error_text:
-                        logger.error("   🚨 Validation error: %s", error_text.strip())
-                
-                return False
-            
-            # Multiple click strategies WITH SCROLL
-            click_success = False
-            
-            # Strategy 1: Normal click
-            try:
-                await submit_button.click()
-                print("   ✅ Normal click successful")
-                click_success = True
-            except Exception as e:
-                logger.warning("   ⚠️ Normal click failed: %s", e)
-            
-            # Strategy 2: JavaScript click (doesn't require element to be in viewport)
-            if not click_success:
-                try:
-                    await submit_button.evaluate("el => el.click()")
-                    print("   ✅ JavaScript click successful")
-                    click_success = True
-                except Exception as e:
-                    logger.warning("   ⚠️ JavaScript click failed: %s", e)
-            
-            # Strategy 3: Click via coordinates
-            if not click_success:
-                try:
-                    bbox = await submit_button.bounding_box()
-                    if bbox:
-                        x = bbox['x'] + bbox['width'] / 2
-                        y = bbox['y'] + bbox['height'] / 2
-                        await page.mouse.click(x, y)
-                        print("   ✅ Coordinate click successful")
-                        click_success = True
-                except Exception as e:
-                    logger.warning("   ⚠️ Coordinate click failed: %s", e)
-            
-            if not click_success:
-                logger.error("   ❌ All click methods failed")
-                return False
-            
-        except Exception as e:
-            logger.error("   ❌ Button clicking failed: %s", e)
             return False
 
         # ========== SUCCESS DETECTION ==========
@@ -7627,14 +7600,36 @@ class Account:
 
     async def _process_version_2(self, page, email: str, password: str, full_name: str, username: str,
                            birth_year: int, birth_month: int, birth_day: int) -> bool:
-        """Process Version 2: Basic fields first, then birthday in next step"""
+        """Process Version 2: Basic fields first, then birthday in next step with enhanced dynamic detection"""
         print("   📝 Processing Version 2 form...")
         
         try:
-            # Step 1: Fill basic fields only
-            print("   🔄 Step 1: Filling basic fields...")
+            # Step 1: Fill basic fields only with enhanced detection
+            print("   🔄 Step 1: Filling basic fields with enhanced detection...")
             
             field_mapping = {}
+            
+            # ========== ENHANCED: Use dynamic detection first ==========
+            print("   🔍 Using enhanced dynamic form field detection...")
+            
+            detected_fields = await self._detect_form_fields_dynamically(page)
+            
+            # Map detected fields to our internal naming
+            field_name_mapping = {
+                'email': 'email_field',
+                'password': 'password_field',
+                'fullname': 'name_field',
+                'username': 'username_field'
+            }
+            
+            for detected_type, internal_name in field_name_mapping.items():
+                if detected_type in detected_fields:
+                    field_mapping[internal_name] = detected_fields[detected_type]
+                    print(f"   ✅ {internal_name} detected via dynamic detection")
+            
+            print(f"   📊 Dynamic detection found {len(field_mapping)} fields (confidence: {detected_fields.get('confidence', 0):.1%})")
+            
+            # ========== Fallback to selector-based detection ==========
             field_selectors = {
                 'email_field': [
                     'input[name="emailOrPhone"]',
@@ -7656,14 +7651,15 @@ class Account:
                 ]
             }
             
-            # Find and fill basic fields
+            # Find and fill basic fields (only for missing ones)
             for field_type, selectors in field_selectors.items():
-                for selector in selectors:
-                    element = await page.query_selector(selector)
-                    if element and await element.is_visible():
-                        field_mapping[field_type] = element
-                        print(f"   ✅ {field_type} found: {selector}")
-                        break
+                if field_type not in field_mapping:  # Only search for missing fields
+                    for selector in selectors:
+                        element = await page.query_selector(selector)
+                        if element and await element.is_visible():
+                            field_mapping[field_type] = element
+                            print(f"   ✅ {field_type} found: {selector}")
+                            break
             
             # Fill fields
             if 'email_field' in field_mapping:
@@ -7707,34 +7703,58 @@ class Account:
             except Exception as e:
                 print("   ⚠️ Screenshot skipped: %s", e)
             
-            # Click Sign up button for Version 2
-            print("   🔄 Clicking Sign up button...")
-            signup_success = await self._click_button_by_text(page, ["sign up"])
+            # ========== ENHANCED: Scroll and click Sign up button ==========
+            print("   🔄 Looking for Sign up button (with scroll support)...")
+            
+            # First scroll to make sure button is visible
+            await self._scroll_page_to_bottom(page)
+            await asyncio.sleep(0.5)
+            
+            # Use enhanced button detection
+            signup_success = await self._detect_and_click_submit_button(page, "signup")
+            
+            if not signup_success:
+                # Fallback to legacy method
+                print("   🔄 Fallback: Legacy button detection...")
+                signup_success = await self._click_button_by_text(page, ["sign up", "daftar", "next", "lanjut"])
             
             if not signup_success:
                 logger.error("   ❌ Could not find/click Sign up button")
+                try:
+                    await page.screenshot(path="./debug_signup_button_not_found.png")
+                except Exception:
+                    pass
                 return False
             
             print("   ✅ Sign up button clicked, waiting for birthday step...")
             print("   ⏳ Waiting for birthday page to fully load...")
             await asyncio.sleep(5)
 
-            # Step 2: Fill birthday in second step
-            print("   🔄 Step 2: Filling birthday...")
+            # Step 2: Fill birthday in second step with enhanced detection
+            print("   🔄 Step 2: Filling birthday with enhanced detection...")
             try:
                 await page.screenshot(path="./debug_birthday_step.png")
             except Exception as e:
                 print("   ⚠️ Screenshot skipped: %s", e)
             
-            # Fill birthday using the same method as Version 1
-            birthday_filled = await self._fill_birthday_fields(page, birth_year, birth_month, birth_day)
+            # Fill birthday using enhanced v3 method
+            birthday_filled = await self._fill_birthday_fields_v3(page, birth_year, birth_month, birth_day, "version_2")
+            
+            if not birthday_filled:
+                # Fallback to original method
+                print("   🔄 Trying legacy birthday fill method...")
+                birthday_filled = await self._fill_birthday_fields(page, birth_year, birth_month, birth_day)
             
             if not birthday_filled:
                 logger.error("   ❌ Could not fill birthday in step 2")
                 return False
             
-            # ========== IMPROVED BUTTON DETECTION FOR BOTH "CONTINUE" AND "NEXT" ==========
-            print("   🔄 Looking for Continue/Next button after birthday...")
+            # ========== ENHANCED BUTTON DETECTION with scroll support ==========
+            print("   🔄 Looking for Continue/Next button after birthday (with scroll)...")
+            
+            # Scroll to ensure button is visible
+            await self._scroll_page_to_bottom(page)
+            await asyncio.sleep(0.5)
             
             # Take screenshot before looking for button
             try:
@@ -7742,88 +7762,26 @@ class Account:
             except Exception as e:
                 print("   ⚠️ Screenshot skipped: %s", e)
             
-            # Strategy 1: Look for BOTH "continue" AND "next" buttons
-            continue_success = await self._click_button_by_text(page, [
-                "next", "continue", "sign up", "submit", "done", "finish"
-            ])
+            # Use enhanced button detection for birthday step
+            continue_success = await self._detect_and_click_submit_button(page, "birthday")
             
-            # Strategy 2: If text-based fails, look for primary action buttons
+            # Fallback Strategy: If enhanced detection fails, try legacy methods
             if not continue_success:
-                print("   🔄 Strategy 2: Looking for primary action buttons...")
+                print("   🔄 Fallback: Legacy button detection with scroll...")
                 
-                # Look for buttons that are likely the primary action
-                primary_selectors = [
-                    'button[type="submit"]',
-                    'button._acan._acap._acas',  # Instagram's primary button
-                    'button._aact',  # Instagram's action button
-                    'button:not([disabled])[class*="acap"]',  # Any enabled primary button
-                ]
+                # Scroll page to bottom first
+                await self._scroll_page_to_bottom(page)
+                await asyncio.sleep(0.5)
                 
-                for selector in primary_selectors:
-                    buttons = await page.query_selector_all(selector)
-                    for button in buttons:
-                        try:
-                            if await button.is_visible() and await button.is_enabled():
-                                button_text = (await button.text_content() or "").strip()
-                                # Avoid back buttons
-                                if not any(avoid in button_text.lower() for avoid in ['back', 'previous', 'return']):
-                                    await button.click()
-                                    print(f"   ✅ Clicked primary button: '{button_text}' with {selector}")
-                                    continue_success = True
-                                    break
-                        except Exception:
-                            continue
-                    if continue_success:
-                        break
+                # Try clicking any visible action button
+                continue_success = await self._click_button_by_text_with_scroll(page, [
+                    "next", "continue", "lanjut", "lanjutkan", "berikutnya", 
+                    "sign up", "daftar", "submit", "done", "selesai"
+                ])
             
-            # Strategy 3: Look for the most prominent enabled button
+            # Final fallback: Press Enter key
             if not continue_success:
-                print("   🔄 Strategy 3: Looking for most prominent button...")
-                all_buttons = await page.query_selector_all('button:not([disabled]), [role="button"]:not([disabled])')
-                
-                # Score buttons by their prominence (primary buttons score higher)
-                button_scores = []
-                for button in all_buttons:
-                    try:
-                        if await button.is_visible() and await button.is_enabled():
-                            button_text = (await button.text_content() or "").strip().lower()
-                            button_class = (await button.get_attribute('class') or "").lower()
-                            
-                            # Score based on text and class
-                            score = 0
-                            
-                            # High score for action words
-                            if any(action in button_text for action in ['next', 'continue', 'sign up', 'submit', 'done']):
-                                score += 10
-                            
-                            # High score for Instagram primary button classes
-                            if 'acan' in button_class and 'acap' in button_class:
-                                score += 20
-                            
-                            # Penalty for back/return buttons
-                            if any(avoid in button_text for avoid in ['back', 'previous', 'return']):
-                                score -= 50
-                            
-                            if score > 0:
-                                button_scores.append({
-                                    'button': button,
-                                    'score': score,
-                                    'text': button_text
-                                })
-                    except Exception:
-                        continue
-                
-                # Click the highest scored button
-                if button_scores:
-                    button_scores.sort(key=lambda x: x['score'], reverse=True)
-                    best_button = button_scores[0]
-                    await best_button['button'].click()
-                    print(f"   ✅ Clicked highest scored button: '{best_button['text']}' (score: {best_button['score']})")
-                    continue_success = True
-            
-            # Strategy 4: Press Enter key as final fallback
-            if not continue_success:
-                print("   🔄 Strategy 4: Pressing Enter key...")
+                print("   🔄 Final fallback: Pressing Enter key...")
                 await page.keyboard.press('Enter')
                 print("   ✅ Pressed Enter key")
                 continue_success = True
@@ -7838,21 +7796,14 @@ class Account:
                 # Debug: List all available buttons with details
                 print("   🐛 DEBUG: All buttons on birthday page:")
                 all_buttons = await page.query_selector_all('button, [role="button"]')
-                for i, btn in enumerate(all_buttons):
+                for i, btn in enumerate(all_buttons[:10]):  # Limit to first 10 buttons
                     try:
                         is_visible = await btn.is_visible()
                         is_enabled = await btn.is_enabled()
-                        btn_text = (await btn.text_content() or "").strip()
-                        btn_class = await btn.get_attribute('class') or ""
+                        btn_text = (await btn.text_content() or "").strip()[:50]  # Truncate long text
                         btn_type = await btn.get_attribute('type') or ""
                         
-                        print(f"   🔘 {i}: visible={is_visible}, enabled={is_enabled}, type='{btn_type}', text='{btn_text}', class='{btn_class}'")
-                        
-                        # Also check bounding box for size (larger buttons are usually primary)
-                        if is_visible:
-                            bbox = await btn.bounding_box()
-                            if bbox:
-                                print(f"   📏   Size: {bbox['width']}x{bbox['height']} at ({bbox['x']}, {bbox['y']})")
+                        print(f"   🔘 {i}: visible={is_visible}, enabled={is_enabled}, type='{btn_type}', text='{btn_text}'")
                                 
                     except Exception as e:
                         print(f"   🔘 {i}: error - {e}")
@@ -7876,7 +7827,7 @@ class Account:
             
             self.status = 2
             final_status_determined = True
-            print("   ✅ Version 1 form submitted successfully, OTP verification required")
+            print("   ✅ Version 2 form submitted successfully, OTP verification required")
             
             return True
             
@@ -7893,10 +7844,43 @@ class Account:
         """Enhanced birthday filling untuk Version 3 dengan dynamic detection"""
         
         print(f"   🎂 Birthday filling for {form_version}...")
+        print(f"   📅 Target date: {birth_year}-{birth_month:02d}-{birth_day:02d}")
         
         try:
-            # ========== STRATEGY 1: DYNAMIC BIRTHDAY FIELD DETECTION ==========
-            print("   🔄 Strategy 1: Dynamic field detection...")
+            # ========== STRATEGY 0: ENHANCED DYNAMIC FORM FIELD DETECTION ==========
+            print("   🔄 Strategy 0: Enhanced dynamic field detection using FIELD_PATTERNS...")
+            
+            detected_fields = await self._detect_form_fields_dynamically(page)
+            
+            if detected_fields.get('confidence', 0) > 0.3:
+                birthday_detected = False
+                
+                # Fill month if detected
+                if 'month' in detected_fields:
+                    success = await self._fill_birthday_with_smart_selection(page, detected_fields['month'], birth_month, 'month')
+                    if success:
+                        birthday_detected = True
+                    await asyncio.sleep(0.5)
+                
+                # Fill day if detected
+                if 'day' in detected_fields:
+                    success = await self._fill_birthday_with_smart_selection(page, detected_fields['day'], birth_day, 'day')
+                    if success:
+                        birthday_detected = True
+                    await asyncio.sleep(0.5)
+                
+                # Fill year if detected
+                if 'year' in detected_fields:
+                    success = await self._fill_birthday_with_smart_selection(page, detected_fields['year'], birth_year, 'year')
+                    if success:
+                        birthday_detected = True
+                
+                if birthday_detected:
+                    print(f"   ✅ Birthday filled via enhanced dynamic detection (confidence: {detected_fields['confidence']:.1%})")
+                    return True
+            
+            # ========== STRATEGY 1: LEGACY DYNAMIC BIRTHDAY FIELD DETECTION ==========
+            print("   🔄 Strategy 1: Legacy dynamic field detection...")
             
             # Cari semua elemen yang mungkin birthday-related
             all_possible_selectors = await page.query_selector_all('select, input, [role="combobox"], [aria-haspopup="listbox"]')
@@ -7909,20 +7893,12 @@ class Account:
                 print(f"   ✅ Identified {len(birthday_fields)} birthday fields")
                 return await self._fill_identified_birthday_fields(page, birthday_fields, birth_year, birth_month, birth_day)
             
-            # ========== STRATEGY 2: TEXT-BASED BIRTHDAY SECTION DETECTION ==========
-            print("   🔄 Strategy 2: Text-based section detection...")
+            # ========== STRATEGY 2: BIRTHDAY SECTION DETECTION ==========
+            print("   🔄 Strategy 2: Birthday section detection...")
             
-            # Cari section yang mengandung text "birthday", "date of birth", dll
-            birthday_sections = await page.query_selector_all(
-                ':has-text("Birthday"), :has-text("Date of Birth"), :has-text("DOB"), '
-                ':has-text("Birth date"), :has-text("Tanggal Lahir"), :has-text("Date de naissance")'
-            )
-            
-            for section in birthday_sections:
-                print(f"   📍 Processing birthday section: {await section.text_content()[:50]}...")
-                
-                # Cari fields dalam section ini
-                section_fields = await section.query_selector_all('select, input, [role="combobox"]')
+            birthday_section = await self._detect_birthday_section(page)
+            if birthday_section:
+                section_fields = await birthday_section.query_selector_all('select, input, [role="combobox"]')
                 if len(section_fields) >= 3:
                     success = await self._fill_birthday_fields_in_section(section_fields, birth_year, birth_month, birth_day)
                     if success:
@@ -7946,16 +7922,40 @@ class Account:
                     # Fallback: coba isi secara sequential
                     return await self._fill_comboboxes_sequential(comboboxes, birth_year, birth_month, birth_day)
             
-            # ========== STRATEGY 4: PLACEHOLDER-BASED DETECTION ==========
-            print("   🔄 Strategy 4: Placeholder-based detection...")
+            # ========== STRATEGY 4: PLACEHOLDER-BASED DETECTION (ENHANCED) ==========
+            print("   🔄 Strategy 4: Enhanced placeholder-based detection...")
             
-            # Cari input fields dengan placeholder yang menandakan birthday
-            placeholder_fields = await page.query_selector_all('input[placeholder*="YYYY"], input[placeholder*="MM"], input[placeholder*="DD"], '
-                                                            'input[placeholder*="Year"], input[placeholder*="Month"], input[placeholder*="Day"]')
+            # Build comprehensive placeholder selectors from FIELD_PATTERNS
+            month_patterns = FIELD_PATTERNS.get('month', [])
+            day_patterns = FIELD_PATTERNS.get('day', [])
+            year_patterns = FIELD_PATTERNS.get('year', [])
             
-            if len(placeholder_fields) >= 3:
-                print(f"   📍 Found {len(placeholder_fields)} placeholder-based fields")
-                return await self._fill_placeholder_birthday_fields(placeholder_fields, birth_year, birth_month, birth_day)
+            month_selectors = ', '.join([f'input[placeholder*="{p}" i], [aria-label*="{p}" i]' for p in month_patterns])
+            day_selectors = ', '.join([f'input[placeholder*="{p}" i], [aria-label*="{p}" i]' for p in day_patterns])
+            year_selectors = ', '.join([f'input[placeholder*="{p}" i], [aria-label*="{p}" i]' for p in year_patterns])
+            
+            month_field = await page.query_selector(month_selectors)
+            day_field = await page.query_selector(day_selectors)
+            year_field = await page.query_selector(year_selectors)
+            
+            if month_field and day_field and year_field:
+                print("   📍 Found all birthday fields via placeholder patterns")
+                success_count = 0
+                
+                if await self._fill_birthday_with_smart_selection(page, month_field, birth_month, 'month'):
+                    success_count += 1
+                await asyncio.sleep(0.3)
+                
+                if await self._fill_birthday_with_smart_selection(page, day_field, birth_day, 'day'):
+                    success_count += 1
+                await asyncio.sleep(0.3)
+                
+                if await self._fill_birthday_with_smart_selection(page, year_field, birth_year, 'year'):
+                    success_count += 1
+                
+                if success_count >= 2:
+                    print(f"   ✅ Birthday filled via placeholder patterns ({success_count}/3)")
+                    return True
             
             # ========== STRATEGY 5: VISUAL POSITION-BASED DETECTION ==========
             print("   🔄 Strategy 5: Visual position-based detection...")
@@ -7981,22 +7981,34 @@ class Account:
                     # Asumsikan urutan: month, day, year (format US)
                     try:
                         # Month (first select)
-                        await positioned_selects[0][1].select_option(value=str(birth_month))
+                        await self._fill_birthday_with_smart_selection(page, positioned_selects[0][1], birth_month, 'month')
+                        await asyncio.sleep(0.3)
                         # Day (second select)  
-                        await positioned_selects[1][1].select_option(value=str(birth_day))
+                        await self._fill_birthday_with_smart_selection(page, positioned_selects[1][1], birth_day, 'day')
+                        await asyncio.sleep(0.3)
                         # Year (third select)
-                        await positioned_selects[2][1].select_option(value=str(birth_year))
+                        await self._fill_birthday_with_smart_selection(page, positioned_selects[2][1], birth_year, 'year')
                         
                         print("   ✅ Birthday filled with position-based strategy")
                         return True
                     except Exception as e:
                         print(f"   ⚠️ Position-based strategy failed: {e}")
             
+            # ========== STRATEGY 6: FALLBACK MECHANISM ==========
+            print("   🔄 Strategy 6: Fallback mechanism...")
+            
+            result = await self._fill_birthday_with_fallback(page, birth_year, birth_month, birth_day)
+            if result:
+                print("   ✅ Birthday filled via fallback mechanism")
+                return True
+            
             print("   ❌ All birthday filling strategies failed")
             return False
             
         except Exception as e:
             print(f"   ❌ Birthday filling error: {e}")
+            import traceback
+            traceback.print_exc()
             return False
 
     async def _identify_birthday_fields(self, page, elements) -> list:
@@ -8131,6 +8143,628 @@ class Account:
         
         return False
 
+    async def _detect_form_fields_dynamically(self, page) -> Dict[str, Any]:
+        """
+        Dynamic form field detection berdasarkan placeholder, aria-label, name attribute.
+        Supports multiple languages and various form structures.
+        
+        Returns:
+            Dict containing detected fields: {
+                'email': element,
+                'password': element,
+                'fullname': element,
+                'username': element,
+                'month': element,
+                'day': element,
+                'year': element,
+                'detection_method': str,
+                'confidence': float
+            }
+        """
+        print("   🔍 Starting dynamic form field detection...")
+        
+        detected_fields = {
+            'detection_method': 'dynamic',
+            'confidence': 0.0,
+            'debug_info': []
+        }
+        
+        try:
+            # ========== STEP 1: Scan all visible form elements ==========
+            all_elements = await page.query_selector_all(
+                'input:not([type="hidden"]):not([type="submit"]):not([type="button"]), '
+                'select, [role="combobox"], [role="listbox"]'
+            )
+            
+            visible_elements = []
+            for element in all_elements:
+                try:
+                    if await element.is_visible():
+                        bbox = await element.bounding_box()
+                        if bbox and bbox['width'] > 0 and bbox['height'] > 0:
+                            # Collect element attributes
+                            attrs = await self._get_element_attributes(page, element)
+                            attrs['element'] = element
+                            attrs['bbox'] = bbox
+                            visible_elements.append(attrs)
+                except Exception:
+                    continue
+            
+            print(f"   📊 Found {len(visible_elements)} visible form elements")
+            detected_fields['debug_info'].append(f"Total visible elements: {len(visible_elements)}")
+            
+            # ========== STEP 2: Analyze each element ==========
+            for elem_data in visible_elements:
+                field_type = await self._analyze_element_for_field_type(elem_data)
+                
+                if field_type and field_type not in detected_fields:
+                    detected_fields[field_type] = elem_data['element']
+                    method_used = elem_data.get('detection_method', 'attribute')
+                    print(f"   ✅ Detected {field_type} field via {method_used}")
+                    detected_fields['debug_info'].append(f"{field_type}: {method_used}")
+            
+            # ========== STEP 3: Calculate confidence ==========
+            total_possible = 7  # email, password, fullname, username, month, day, year
+            detected_count = len([k for k in detected_fields.keys() 
+                                  if k in ['email', 'password', 'fullname', 'username', 'month', 'day', 'year']])
+            detected_fields['confidence'] = detected_count / total_possible
+            
+            print(f"   📈 Detection confidence: {detected_fields['confidence']:.1%} ({detected_count}/{total_possible})")
+            
+            return detected_fields
+            
+        except Exception as e:
+            print(f"   ❌ Dynamic detection error: {e}")
+            detected_fields['error'] = str(e)
+            return detected_fields
+    
+    async def _get_element_attributes(self, page, element) -> Dict[str, Any]:
+        """Get all relevant attributes from an element for analysis"""
+        try:
+            attrs = await page.evaluate("""(element) => {
+                return {
+                    tagName: element.tagName.toLowerCase(),
+                    type: element.type || '',
+                    name: element.name || '',
+                    id: element.id || '',
+                    placeholder: element.placeholder || '',
+                    ariaLabel: element.getAttribute('aria-label') || '',
+                    role: element.getAttribute('role') || '',
+                    autocomplete: element.getAttribute('autocomplete') || '',
+                    className: element.className || '',
+                    value: element.value || '',
+                    textContent: element.textContent ? element.textContent.substring(0, 100) : ''
+                };
+            }""", element)
+            return attrs
+        except Exception:
+            return {}
+    
+    async def _analyze_element_for_field_type(self, elem_data: Dict[str, Any]) -> Optional[str]:
+        """
+        Analyze element attributes to determine field type.
+        Uses FIELD_PATTERNS for multi-language support.
+        """
+        # Combine all searchable text
+        searchable_text = ' '.join([
+            elem_data.get('placeholder', ''),
+            elem_data.get('ariaLabel', ''),
+            elem_data.get('name', ''),
+            elem_data.get('id', ''),
+            elem_data.get('autocomplete', ''),
+            elem_data.get('textContent', '')
+        ]).lower()
+        
+        input_type = elem_data.get('type', '').lower()
+        tag_name = elem_data.get('tagName', '').lower()
+        
+        # ========== PRIORITY 1: Type-based detection ==========
+        if input_type == 'password':
+            elem_data['detection_method'] = 'type_attribute'
+            return 'password'
+        
+        if input_type == 'email':
+            elem_data['detection_method'] = 'type_attribute'
+            return 'email'
+        
+        # ========== PRIORITY 2: Autocomplete-based detection ==========
+        autocomplete = elem_data.get('autocomplete', '').lower()
+        autocomplete_mapping = {
+            'email': 'email',
+            'username': 'username',
+            'new-password': 'password',
+            'current-password': 'password',
+            'name': 'fullname',
+            'bday-month': 'month',
+            'bday-day': 'day',
+            'bday-year': 'year'
+        }
+        if autocomplete in autocomplete_mapping:
+            elem_data['detection_method'] = 'autocomplete'
+            return autocomplete_mapping[autocomplete]
+        
+        # ========== PRIORITY 3: Pattern-based detection (multi-language) ==========
+        for field_type, patterns in FIELD_PATTERNS.items():
+            for pattern in patterns:
+                if pattern.lower() in searchable_text:
+                    elem_data['detection_method'] = f'pattern:{pattern}'
+                    return field_type
+        
+        # ========== PRIORITY 4: Select/combobox analysis for birthday ==========
+        if tag_name == 'select' or elem_data.get('role') == 'combobox':
+            # Analyze options for birthday field detection
+            birthday_type = await self._analyze_select_for_birthday(elem_data)
+            if birthday_type:
+                elem_data['detection_method'] = 'options_range'
+                return birthday_type
+        
+        return None
+    
+    async def _analyze_select_for_birthday(self, elem_data: Dict[str, Any]) -> Optional[str]:
+        """
+        Analyze select/combobox options to determine if it's a birthday field.
+        Uses option value ranges to detect month (1-12), day (1-31), year (1900-2024).
+        """
+        try:
+            element = elem_data.get('element')
+            if not element:
+                return None
+            
+            # Get options from select element
+            options = await element.query_selector_all('option')
+            option_values = []
+            
+            for option in options:
+                try:
+                    value = await option.get_attribute('value')
+                    text = await option.text_content()
+                    if value:
+                        option_values.append(value)
+                    if text:
+                        option_values.append(text.strip())
+                except Exception:
+                    continue
+            
+            # Analyze value ranges
+            numeric_values = []
+            for val in option_values:
+                try:
+                    num = int(val)
+                    numeric_values.append(num)
+                except ValueError:
+                    # Check for month names
+                    for lang_months in MONTH_NAMES.values():
+                        if val.strip().title() in lang_months or val.strip() in lang_months:
+                            return 'month'
+            
+            if not numeric_values:
+                return None
+            
+            min_val = min(numeric_values)
+            max_val = max(numeric_values)
+            count = len(numeric_values)
+            
+            # Month detection: 1-12 range or 12 options
+            if (min_val == 1 and max_val == 12) or count == 12:
+                return 'month'
+            
+            # Day detection: 1-31 range or 28-31 options
+            if min_val == 1 and 28 <= max_val <= 31:
+                return 'day'
+            
+            # Year detection: years in past (typically 1900-current year)
+            if min_val >= 1900 and max_val <= 2025 and count > 50:
+                return 'year'
+            
+            return None
+            
+        except Exception:
+            return None
+    
+    async def _detect_birthday_section(self, page) -> Optional[Any]:
+        """
+        Detect birthday section berdasarkan text content.
+        Supports multiple languages.
+        """
+        birthday_keywords = [
+            'birthday', 'date of birth', 'birth date', 'dob',
+            'tanggal lahir', 'ulang tahun',
+            'fecha de nacimiento', 'cumpleaños',
+            'date de naissance', 'anniversaire',
+            'geburtsdatum', 'geburtstag',
+            'data di nascita', 'compleanno'
+        ]
+        
+        try:
+            # Find parent containers with birthday text
+            for keyword in birthday_keywords:
+                # Try different selector approaches
+                selectors = [
+                    f'div:has-text("{keyword}")',
+                    f'section:has-text("{keyword}")',
+                    f'fieldset:has-text("{keyword}")',
+                    f'label:has-text("{keyword}")'
+                ]
+                
+                for selector in selectors:
+                    try:
+                        section = await page.query_selector(selector)
+                        if section:
+                            print(f"   🎂 Found birthday section with keyword: {keyword}")
+                            return section
+                    except Exception:
+                        continue
+            
+            return None
+            
+        except Exception as e:
+            print(f"   ⚠️ Birthday section detection error: {e}")
+            return None
+    
+    async def _fill_birthday_with_smart_selection(self, page, field, value, field_type: str) -> bool:
+        """
+        Smart field value selection for birthday fields.
+        Handles month names, formats, and scrolling for long dropdowns.
+        """
+        try:
+            tag_name = await field.evaluate("(element) => element.tagName.toLowerCase()")
+            role = await field.get_attribute('role')
+            
+            # ========== SELECT ELEMENT HANDLING ==========
+            if tag_name == 'select':
+                return await self._fill_select_birthday_field(page, field, value, field_type)
+            
+            # ========== COMBOBOX HANDLING ==========
+            if role == 'combobox':
+                return await self._fill_combobox_birthday_field(page, field, value, field_type)
+            
+            # ========== INPUT FIELD HANDLING ==========
+            if tag_name == 'input':
+                return await self._fill_input_birthday_field(page, field, value, field_type)
+            
+            return False
+            
+        except Exception as e:
+            print(f"   ❌ Smart selection failed for {field_type}: {e}")
+            return False
+    
+    async def _fill_select_birthday_field(self, page, field, value, field_type: str) -> bool:
+        """Fill select element for birthday field with multiple value formats"""
+        try:
+            # Build list of possible values to try
+            possible_values = []
+            
+            if field_type == 'month':
+                month_int = int(value)
+                # Try numeric formats
+                possible_values.extend([str(month_int), str(month_int).zfill(2)])
+                # Try month names in different languages
+                for lang, months in MONTH_NAMES.items():
+                    if 1 <= month_int <= 12:
+                        possible_values.append(months[month_int - 1])
+                        possible_values.append(months[month_int - 1].lower())
+                        
+            elif field_type == 'day':
+                day_int = int(value)
+                possible_values.extend([str(day_int), str(day_int).zfill(2)])
+                
+            elif field_type == 'year':
+                possible_values.append(str(value))
+            
+            # Try each possible value
+            for val in possible_values:
+                try:
+                    await field.select_option(value=val)
+                    print(f"   ✅ {field_type} selected with value: {val}")
+                    return True
+                except Exception:
+                    pass
+                
+                # Also try selecting by visible text
+                try:
+                    await field.select_option(label=val)
+                    print(f"   ✅ {field_type} selected with label: {val}")
+                    return True
+                except Exception:
+                    pass
+            
+            # Fallback: try index-based selection for year (scroll support)
+            if field_type == 'year':
+                return await self._select_year_with_scroll(page, field, value)
+            
+            return False
+            
+        except Exception as e:
+            print(f"   ❌ Select fill failed for {field_type}: {e}")
+            return False
+    
+    async def _fill_combobox_birthday_field(self, page, field, value, field_type: str) -> bool:
+        """Fill combobox for birthday field with dropdown handling"""
+        try:
+            # Click to open dropdown
+            await field.click()
+            await asyncio.sleep(0.8)
+            
+            # Build search text based on field type
+            if field_type == 'month':
+                month_int = int(value)
+                # Try month name first, then number
+                search_texts = []
+                for months in MONTH_NAMES.values():
+                    if 1 <= month_int <= 12:
+                        search_texts.append(months[month_int - 1])
+                search_texts.extend([str(month_int), str(month_int).zfill(2)])
+            elif field_type == 'day':
+                search_texts = [str(value), str(value).zfill(2)]
+            else:  # year
+                search_texts = [str(value)]
+            
+            # Try to find and click the option
+            for search_text in search_texts:
+                option_selectors = [
+                    f'[role="option"]:has-text("{search_text}")',
+                    f'li:has-text("{search_text}")',
+                    f'div[role="option"]:has-text("{search_text}")'
+                ]
+                
+                for selector in option_selectors:
+                    try:
+                        option = await page.query_selector(selector)
+                        if option and await option.is_visible():
+                            await option.click()
+                            print(f"   ✅ {field_type} combobox option clicked: {search_text}")
+                            await asyncio.sleep(0.3)
+                            return True
+                    except Exception:
+                        continue
+            
+            # Fallback: type the value and press Enter
+            try:
+                await field.fill(str(value))
+                await asyncio.sleep(0.3)
+                await field.press('Enter')
+                print(f"   ✅ {field_type} filled via typing: {value}")
+                return True
+            except Exception:
+                pass
+            
+            return False
+            
+        except Exception as e:
+            print(f"   ❌ Combobox fill failed for {field_type}: {e}")
+            return False
+    
+    async def _fill_input_birthday_field(self, page, field, value, field_type: str) -> bool:
+        """Fill input field for birthday with human-like typing"""
+        try:
+            await field.click()
+            await asyncio.sleep(0.2)
+            
+            # Clear existing value
+            await field.fill("")
+            await asyncio.sleep(0.1)
+            
+            # Format value
+            if field_type == 'year':
+                value_str = str(value)
+            else:
+                value_str = str(value).zfill(2)
+            
+            # Type character by character
+            for char in value_str:
+                await field.type(char, delay=random.randint(50, 120))
+                await asyncio.sleep(random.uniform(0.03, 0.08))
+            
+            print(f"   ✅ {field_type} input filled: {value_str}")
+            return True
+            
+        except Exception as e:
+            print(f"   ❌ Input fill failed for {field_type}: {e}")
+            return False
+    
+    async def _select_year_with_scroll(self, page, field, year_value) -> bool:
+        """Select year from long dropdown with scrolling support"""
+        try:
+            # Get all options
+            options = await field.query_selector_all('option')
+            
+            for option in options:
+                try:
+                    value = await option.get_attribute('value')
+                    text = await option.text_content()
+                    
+                    if str(year_value) in [value, text]:
+                        # Scroll option into view
+                        await option.scroll_into_view_if_needed()
+                        await asyncio.sleep(0.2)
+                        
+                        # Select the option
+                        await field.select_option(value=value)
+                        print(f"   ✅ Year selected with scroll: {year_value}")
+                        return True
+                except Exception:
+                    continue
+            
+            return False
+            
+        except Exception as e:
+            print(f"   ❌ Year scroll selection failed: {e}")
+            return False
+    
+    async def _fill_birthday_with_fallback(self, page, birth_year: int, birth_month: int, birth_day: int) -> bool:
+        """
+        Fallback mechanism for birthday filling when dynamic detection fails.
+        Tries multiple approaches in sequence.
+        """
+        print("   🔄 Starting birthday fallback mechanism...")
+        
+        fallback_attempts = []
+        
+        # ========== FALLBACK 1: Position-based detection ==========
+        print("   📍 Fallback 1: Position-based detection...")
+        try:
+            result = await self._fill_birthday_by_position(page, birth_year, birth_month, birth_day)
+            if result:
+                print("   ✅ Fallback 1 succeeded: Position-based")
+                return True
+            fallback_attempts.append("Position-based: Failed")
+        except Exception as e:
+            fallback_attempts.append(f"Position-based: Error - {e}")
+        
+        # ========== FALLBACK 2: Keyboard input directly ==========
+        print("   ⌨️ Fallback 2: Keyboard input...")
+        try:
+            result = await self._fill_birthday_keyboard_input(page, birth_year, birth_month, birth_day)
+            if result:
+                print("   ✅ Fallback 2 succeeded: Keyboard input")
+                return True
+            fallback_attempts.append("Keyboard input: Failed")
+        except Exception as e:
+            fallback_attempts.append(f"Keyboard input: Error - {e}")
+        
+        # ========== FALLBACK 3: Tab navigation ==========
+        print("   ⇥ Fallback 3: Tab navigation...")
+        try:
+            result = await self._fill_birthday_tab_navigation(page, birth_year, birth_month, birth_day)
+            if result:
+                print("   ✅ Fallback 3 succeeded: Tab navigation")
+                return True
+            fallback_attempts.append("Tab navigation: Failed")
+        except Exception as e:
+            fallback_attempts.append(f"Tab navigation: Error - {e}")
+        
+        # Log all attempts for debugging
+        print("   📋 Fallback Summary:")
+        for attempt in fallback_attempts:
+            print(f"      - {attempt}")
+        
+        return False
+    
+    async def _fill_birthday_by_position(self, page, birth_year: int, birth_month: int, birth_day: int) -> bool:
+        """Fill birthday by detecting field positions (left to right order)"""
+        try:
+            # Get all select/combobox elements
+            all_fields = await page.query_selector_all('select, [role="combobox"]')
+            
+            # Filter visible and get positions
+            positioned_fields = []
+            for field in all_fields:
+                try:
+                    if await field.is_visible():
+                        bbox = await field.bounding_box()
+                        if bbox:
+                            positioned_fields.append({
+                                'element': field,
+                                'x': bbox['x'],
+                                'y': bbox['y']
+                            })
+                except Exception:
+                    continue
+            
+            # Sort by position (assuming same row, left to right = month, day, year)
+            positioned_fields.sort(key=lambda x: (x['y'], x['x']))
+            
+            if len(positioned_fields) >= 3:
+                # Assume US format: Month, Day, Year
+                success_count = 0
+                
+                # Month (first)
+                if await self._fill_birthday_with_smart_selection(page, positioned_fields[0]['element'], birth_month, 'month'):
+                    success_count += 1
+                await asyncio.sleep(0.3)
+                
+                # Day (second)
+                if await self._fill_birthday_with_smart_selection(page, positioned_fields[1]['element'], birth_day, 'day'):
+                    success_count += 1
+                await asyncio.sleep(0.3)
+                
+                # Year (third)
+                if await self._fill_birthday_with_smart_selection(page, positioned_fields[2]['element'], birth_year, 'year'):
+                    success_count += 1
+                
+                return success_count >= 2
+            
+            return False
+            
+        except Exception as e:
+            print(f"   ❌ Position-based fill error: {e}")
+            return False
+    
+    async def _fill_birthday_keyboard_input(self, page, birth_year: int, birth_month: int, birth_day: int) -> bool:
+        """Fill birthday using keyboard input directly"""
+        try:
+            # Focus on first birthday field
+            first_field = await page.query_selector('select, [role="combobox"], input[placeholder*="Month" i], input[placeholder*="MM" i]')
+            if not first_field:
+                return False
+            
+            await first_field.click()
+            await asyncio.sleep(0.3)
+            
+            # Type month
+            await page.keyboard.type(str(birth_month).zfill(2))
+            await asyncio.sleep(0.3)
+            await page.keyboard.press('Tab')
+            await asyncio.sleep(0.3)
+            
+            # Type day
+            await page.keyboard.type(str(birth_day).zfill(2))
+            await asyncio.sleep(0.3)
+            await page.keyboard.press('Tab')
+            await asyncio.sleep(0.3)
+            
+            # Type year
+            await page.keyboard.type(str(birth_year))
+            await asyncio.sleep(0.3)
+            
+            return True
+            
+        except Exception as e:
+            print(f"   ❌ Keyboard input error: {e}")
+            return False
+    
+    async def _fill_birthday_tab_navigation(self, page, birth_year: int, birth_month: int, birth_day: int) -> bool:
+        """Fill birthday using tab key navigation between fields"""
+        try:
+            # Find any birthday-related field to start
+            start_selectors = [
+                'select[name*="month" i]', 'select[name*="birthday" i]',
+                '[role="combobox"][aria-label*="month" i]',
+                'input[placeholder*="Month" i]', 'input[placeholder*="MM" i]'
+            ]
+            
+            start_field = None
+            for selector in start_selectors:
+                start_field = await page.query_selector(selector)
+                if start_field:
+                    break
+            
+            if not start_field:
+                return False
+            
+            await start_field.focus()
+            await asyncio.sleep(0.2)
+            
+            # Fill month
+            await page.keyboard.type(str(birth_month))
+            await page.keyboard.press('Tab')
+            await asyncio.sleep(0.3)
+            
+            # Fill day
+            await page.keyboard.type(str(birth_day))
+            await page.keyboard.press('Tab')
+            await asyncio.sleep(0.3)
+            
+            # Fill year
+            await page.keyboard.type(str(birth_year))
+            await asyncio.sleep(0.3)
+            
+            return True
+            
+        except Exception as e:
+            print(f"   ❌ Tab navigation error: {e}")
+            return False
+
     async def _fill_birthday_fields_in_section(self, section_fields, year, month, day) -> bool:
         """Fill birthday fields dalam section tertentu"""
         try:
@@ -8263,8 +8897,9 @@ class Account:
             return False
 
     async def _fill_birthday_fields(self, page, birth_year: int, birth_month: int, birth_day: int) -> bool:
-        """Fill birthday fields for Version 2 - DIRECT APPROACH"""
-        print("   🎂 Filling birthday fields with direct approach...")
+        """Fill birthday fields for Version 2 - Enhanced with dynamic detection"""
+        print("   🎂 Filling birthday fields with enhanced dynamic approach...")
+        print(f"   📅 Target date: {birth_year}-{birth_month:02d}-{birth_day:02d}")
         
         try:
             # Take screenshot untuk debugging
@@ -8276,8 +8911,38 @@ class Account:
             # Tunggu sebentar untuk memastikan halaman fully loaded
             await asyncio.sleep(3)
             
-            # Strategy 1: Direct select element selection
-            print("   🔍 Looking for select elements directly...")
+            # ========== ENHANCED: Try dynamic detection first ==========
+            print("   🔍 Step 1: Enhanced dynamic field detection...")
+            
+            detected_fields = await self._detect_form_fields_dynamically(page)
+            
+            if detected_fields.get('confidence', 0) > 0.2:
+                birthday_filled = 0
+                
+                # Fill detected birthday fields
+                if 'month' in detected_fields:
+                    success = await self._fill_birthday_with_smart_selection(page, detected_fields['month'], birth_month, 'month')
+                    if success:
+                        birthday_filled += 1
+                    await asyncio.sleep(0.5)
+                
+                if 'day' in detected_fields:
+                    success = await self._fill_birthday_with_smart_selection(page, detected_fields['day'], birth_day, 'day')
+                    if success:
+                        birthday_filled += 1
+                    await asyncio.sleep(0.5)
+                
+                if 'year' in detected_fields:
+                    success = await self._fill_birthday_with_smart_selection(page, detected_fields['year'], birth_year, 'year')
+                    if success:
+                        birthday_filled += 1
+                
+                if birthday_filled >= 2:
+                    print(f"   ✅ Birthday filled via dynamic detection ({birthday_filled}/3)")
+                    return True
+            
+            # ========== Strategy 2: Direct select element selection ==========
+            print("   🔍 Step 2: Looking for select elements directly...")
             
             # Cari semua select elements di halaman
             select_elements = await page.query_selector_all('select')
@@ -8320,21 +8985,19 @@ class Account:
                 if len(positioned_selects) >= 3:
                     positioned_selects.sort(key=lambda x: (x['y'], x['x']))
                     
-                    print("   📅 Filling birthday selects by position...")
+                    print("   📅 Filling birthday selects by position with smart selection...")
                     
                     try:
-                        # Month - first select
-                        await positioned_selects[0]['element'].select_option(value=str(birth_month))
-                        print(f"   ✅ Month selected: {birth_month}")
+                        # Month - first select (use smart selection)
+                        await self._fill_birthday_with_smart_selection(page, positioned_selects[0]['element'], birth_month, 'month')
                         await asyncio.sleep(1)
                         
                         # Day - second select  
-                        await positioned_selects[1]['element'].select_option(value=str(birth_day))
-                        print(f"   ✅ Day selected: {birth_day}")
+                        await self._fill_birthday_with_smart_selection(page, positioned_selects[1]['element'], birth_day, 'day')
                         await asyncio.sleep(1)
                         
                         # Year - third select
-                        await positioned_selects[2]['element'].select_option(value=str(birth_year))
+                        await self._fill_birthday_with_smart_selection(page, positioned_selects[2]['element'], birth_year, 'year')
                         print(f"   ✅ Year selected: {birth_year}")
                         await asyncio.sleep(1)
                         
@@ -8529,6 +9192,533 @@ class Account:
             except Exception:
                 continue
         
+        return False
+
+    async def _detect_and_click_submit_button(self, page, step: str = "signup") -> bool:
+        """
+        Enhanced button detection for different form steps.
+        Includes scrolling to find buttons that may be below the fold.
+        
+        Steps:
+        - 'signup': Sign up / Daftar / Masuk / Create Account
+        - 'birthday': Continue / Next / Lanjutkan / Berikutnya
+        - 'otp': Continue / Next / Finish / Done / Verify / Selesai
+        
+        Returns True if button was found and clicked.
+        """
+        print(f"   🔘 Detecting button for step: {step}...")
+        
+        # Define button texts for each step (multi-language support)
+        button_patterns = {
+            'signup': [
+                # English
+                'sign up', 'create account', 'register', 'submit', 'join',
+                # Indonesian
+                'daftar', 'masuk', 'buat akun', 'gabung',
+                # Spanish
+                'registrar', 'crear cuenta', 'unirse',
+                # French
+                's\'inscrire', 'créer un compte',
+                # German
+                'registrieren', 'konto erstellen'
+            ],
+            'birthday': [
+                # English
+                'next', 'continue', 'proceed', 'submit',
+                # Indonesian
+                'lanjut', 'lanjutkan', 'berikutnya', 'kirim',
+                # Spanish
+                'siguiente', 'continuar', 'enviar',
+                # French
+                'suivant', 'continuer',
+                # German
+                'weiter', 'fortfahren'
+            ],
+            'otp': [
+                # English
+                'next', 'continue', 'finish', 'done', 'verify', 'confirm', 'submit', 'complete',
+                # Indonesian
+                'lanjut', 'selesai', 'verifikasi', 'konfirmasi', 'kirim',
+                # Spanish
+                'siguiente', 'terminar', 'verificar', 'confirmar',
+                # French
+                'terminer', 'vérifier', 'confirmer',
+                # German
+                'fertig', 'bestätigen', 'verifizieren'
+            ]
+        }
+        
+        target_texts = button_patterns.get(step, button_patterns['signup'])
+        
+        # ========== PRE-SCROLL: Scroll down to reveal hidden buttons ==========
+        print(f"   📜 Pre-scroll: Checking for hidden buttons...")
+        await self._scroll_to_find_button(page)
+        await asyncio.sleep(0.5)
+        
+        # Strategy 1: Direct text matching
+        print(f"   🔍 Strategy 1: Text-based button detection...")
+        result = await self._click_button_by_text_with_scroll(page, target_texts)
+        if result:
+            return True
+        
+        # Strategy 2: Search in submit-type buttons
+        print(f"   🔍 Strategy 2: Submit button detection...")
+        submit_selectors = [
+            'button[type="submit"]',
+            'input[type="submit"]',
+            'button[type="button"]'
+        ]
+        
+        for selector in submit_selectors:
+            try:
+                buttons = await page.query_selector_all(selector)
+                for button in buttons:
+                    # Try to scroll to button first
+                    try:
+                        await button.scroll_into_view_if_needed()
+                        await asyncio.sleep(0.2)
+                    except Exception:
+                        pass
+                    
+                    if await button.is_visible() and await button.is_enabled():
+                        text = (await button.text_content() or "").strip().lower()
+                        aria_label = (await button.get_attribute('aria-label') or "").lower()
+                        
+                        for target in target_texts:
+                            if target.lower() in text or target.lower() in aria_label:
+                                await button.scroll_into_view_if_needed()
+                                await asyncio.sleep(0.3)
+                                await button.click()
+                                print(f"   ✅ Clicked submit button: '{text or aria_label}'")
+                                return True
+            except Exception:
+                continue
+        
+        # Strategy 3: Primary/accent button detection (by style)
+        print(f"   🔍 Strategy 3: Primary button detection by style...")
+        style_selectors = [
+            'button[class*="primary"]',
+            'button[class*="submit"]',
+            'button[class*="action"]',
+            'button[class*="btn-primary"]',
+            'button[class*="_acan"]',  # Instagram specific
+            'button[class*="_acap"]'   # Instagram specific
+        ]
+        
+        for selector in style_selectors:
+            try:
+                button = await page.query_selector(selector)
+                if button:
+                    # Scroll to button first
+                    try:
+                        await button.scroll_into_view_if_needed()
+                        await asyncio.sleep(0.2)
+                    except Exception:
+                        pass
+                    
+                    if await button.is_visible() and await button.is_enabled():
+                        text = (await button.text_content() or "").strip()
+                        await button.click()
+                        print(f"   ✅ Clicked primary button: '{text}'")
+                        return True
+            except Exception:
+                continue
+        
+        # Strategy 4: Scroll and find all buttons
+        print(f"   🔍 Strategy 4: Full page scroll + button detection...")
+        result = await self._scroll_and_find_button(page, target_texts)
+        if result:
+            return True
+        
+        # Strategy 5: Last resort - click any enabled button at bottom of form
+        print(f"   🔍 Strategy 5: Position-based button detection...")
+        try:
+            all_buttons = await page.query_selector_all('button')
+            visible_buttons = []
+            
+            for button in all_buttons:
+                # Try scrolling to each button
+                try:
+                    await button.scroll_into_view_if_needed()
+                    await asyncio.sleep(0.1)
+                except Exception:
+                    pass
+                
+                if await button.is_visible() and await button.is_enabled():
+                    bbox = await button.bounding_box()
+                    if bbox:
+                        text = (await button.text_content() or "").strip()
+                        visible_buttons.append({
+                            'element': button,
+                            'y': bbox['y'],
+                            'text': text
+                        })
+            
+            # Sort by Y position (bottom buttons are usually submit)
+            visible_buttons.sort(key=lambda x: x['y'], reverse=True)
+            
+            # Try buttons from bottom to top
+            for btn_data in visible_buttons[:3]:
+                text = btn_data['text'].lower()
+                # Skip obvious non-submit buttons
+                skip_words = ['cancel', 'back', 'batal', 'kembali', 'facebook', 'google', 'apple', 'login', 'log in']
+                if any(skip in text for skip in skip_words):
+                    continue
+                
+                await btn_data['element'].scroll_into_view_if_needed()
+                await asyncio.sleep(0.3)
+                await btn_data['element'].click()
+                print(f"   ✅ Clicked position-based button: '{btn_data['text']}'")
+                return True
+                
+        except Exception as e:
+            print(f"   ⚠️ Position-based detection failed: {e}")
+        
+        print(f"   ❌ No button found for step: {step}")
+        return False
+
+    async def _scroll_to_find_button(self, page) -> None:
+        """
+        Scroll down the page to reveal buttons that might be hidden below the fold.
+        """
+        try:
+            # Get viewport height
+            viewport_height = await page.evaluate("() => window.innerHeight")
+            scroll_height = await page.evaluate("() => document.body.scrollHeight")
+            
+            # If content is taller than viewport, scroll down
+            if scroll_height > viewport_height:
+                # Scroll in small increments
+                scroll_amount = min(300, scroll_height - viewport_height)
+                
+                for _ in range(3):  # Try scrolling up to 3 times
+                    await page.evaluate(f"window.scrollBy(0, {scroll_amount})")
+                    await asyncio.sleep(0.3)
+                    
+                    # Check if we can see a button now
+                    buttons = await page.query_selector_all('button[type="submit"], button:has-text("Sign up"), button:has-text("Next"), button:has-text("Continue")')
+                    for button in buttons:
+                        if await button.is_visible():
+                            print(f"   📜 Found button after scrolling")
+                            return
+                
+                # Scroll back to top if no button found
+                await page.evaluate("window.scrollTo(0, 0)")
+                
+        except Exception as e:
+            print(f"   ⚠️ Scroll error: {e}")
+
+    async def _click_button_by_text_with_scroll(self, page, button_texts) -> bool:
+        """
+        Click button by text content with scroll support.
+        First tries without scroll, then scrolls to find hidden buttons.
+        """
+        # First try without scrolling
+        buttons = await page.query_selector_all('button, [role="button"], input[type="submit"]')
+        
+        for button in buttons:
+            try:
+                # First, try to scroll button into view
+                try:
+                    await button.scroll_into_view_if_needed()
+                    await asyncio.sleep(0.2)
+                except Exception:
+                    pass
+                
+                if await button.is_visible() and await button.is_enabled():
+                    text = (await button.text_content() or "").strip()
+                    aria_label = (await button.get_attribute('aria-label') or "")
+                    text_lower = text.lower()
+                    aria_lower = aria_label.lower()
+                    
+                    for target_text in button_texts:
+                        if target_text.lower() in text_lower or target_text.lower() in aria_lower:
+                            await asyncio.sleep(0.3)
+                            
+                            try:
+                                await button.click()
+                                print(f"   ✅ Clicked button: '{text}'")
+                                return True
+                            except Exception as e:
+                                print(f"   ⚠️ Normal click failed, trying JS click: {e}")
+                                try:
+                                    await button.evaluate("el => el.click()")
+                                    print(f"   ✅ Clicked button via JS: '{text}'")
+                                    return True
+                                except Exception as e2:
+                                    print(f"   ⚠️ JS click failed: {e2}")
+                                    continue
+            except Exception:
+                continue
+        
+        return False
+
+    async def _scroll_and_find_button(self, page, target_texts) -> bool:
+        """
+        Scroll through the entire page to find and click a button.
+        Useful when button is completely hidden below the fold.
+        """
+        try:
+            # Get page dimensions
+            scroll_height = await page.evaluate("() => document.body.scrollHeight")
+            viewport_height = await page.evaluate("() => window.innerHeight")
+            
+            # Scroll from top to bottom in increments
+            current_scroll = 0
+            scroll_step = viewport_height // 2  # Scroll half viewport at a time
+            
+            # Start from top
+            await page.evaluate("window.scrollTo(0, 0)")
+            await asyncio.sleep(0.3)
+            
+            while current_scroll < scroll_height:
+                # Check for buttons at current scroll position
+                buttons = await page.query_selector_all('button, [role="button"], input[type="submit"]')
+                
+                for button in buttons:
+                    try:
+                        if await button.is_visible() and await button.is_enabled():
+                            text = (await button.text_content() or "").strip()
+                            text_lower = text.lower()
+                            
+                            for target_text in target_texts:
+                                if target_text.lower() in text_lower:
+                                    await button.scroll_into_view_if_needed()
+                                    await asyncio.sleep(0.3)
+                                    await button.click()
+                                    print(f"   ✅ Found button after scroll: '{text}'")
+                                    return True
+                    except Exception:
+                        continue
+                
+                # Scroll down
+                current_scroll += scroll_step
+                await page.evaluate(f"window.scrollTo(0, {current_scroll})")
+                await asyncio.sleep(0.3)
+            
+            # Final check at bottom of page
+            await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+            await asyncio.sleep(0.5)
+            
+            # Try one more time to find button
+            buttons = await page.query_selector_all('button, [role="button"], input[type="submit"]')
+            for button in buttons:
+                try:
+                    if await button.is_visible() and await button.is_enabled():
+                        text = (await button.text_content() or "").strip()
+                        text_lower = text.lower()
+                        
+                        for target_text in target_texts:
+                            if target_text.lower() in text_lower:
+                                await button.click()
+                                print(f"   ✅ Found button at page bottom: '{text}'")
+                                return True
+                except Exception:
+                    continue
+            
+            return False
+            
+        except Exception as e:
+            print(f"   ⚠️ Scroll and find error: {e}")
+            return False
+
+    async def _scroll_page_to_bottom(self, page) -> None:
+        """
+        Scroll page to bottom to ensure all elements are loaded and visible.
+        """
+        try:
+            # Smooth scroll to bottom
+            await page.evaluate("""
+                () => {
+                    return new Promise((resolve) => {
+                        const scrollStep = 100;
+                        const scrollInterval = setInterval(() => {
+                            window.scrollBy(0, scrollStep);
+                            if ((window.innerHeight + window.scrollY) >= document.body.scrollHeight) {
+                                clearInterval(scrollInterval);
+                                resolve();
+                            }
+                        }, 50);
+                        
+                        // Timeout after 3 seconds
+                        setTimeout(() => {
+                            clearInterval(scrollInterval);
+                            resolve();
+                        }, 3000);
+                    });
+                }
+            """)
+            await asyncio.sleep(0.5)
+        except Exception as e:
+            print(f"   ⚠️ Scroll to bottom error: {e}")
+
+    async def _detect_form_method(self, page) -> str:
+        """
+        Detect which form method is being used:
+        
+        Method 1 (multi_step):
+        - Step 1: Username, Email, Password, Full Name → Sign up
+        - Step 2: Birthday → Continue/Next
+        - Step 3: Confirmation Code → Continue/Next/Finish
+        
+        Method 2 (single_step):
+        - Step 1: Username, Email, Password, Birthday, Full Name → Sign up
+        - Step 2: Confirmation Code → Continue/Next/Finish
+        
+        Returns: 'multi_step' or 'single_step'
+        """
+        print("   🔍 Detecting form method...")
+        
+        try:
+            # Check for birthday fields on the initial page
+            birthday_selectors = [
+                'select[name*="birthday"]',
+                'select[title*="Year"]',
+                'select[aria-label*="Year"]',
+                'select[aria-label*="Month"]',
+                'select[aria-label*="Day"]',
+                '[role="combobox"][aria-label*="birthday" i]',
+                '[role="combobox"][aria-label*="month" i]',
+                '[role="combobox"][aria-label*="year" i]',
+                '[aria-label*="date of birth" i]'
+            ]
+            
+            birthday_found = False
+            birthday_count = 0
+            
+            for selector in birthday_selectors:
+                try:
+                    elements = await page.query_selector_all(selector)
+                    for element in elements:
+                        if await element.is_visible():
+                            birthday_found = True
+                            birthday_count += 1
+                except Exception:
+                    continue
+            
+            # Also check for birthday text labels
+            birthday_text_patterns = [
+                'text=Birthday',
+                'text=Date of Birth',
+                'text=Tanggal Lahir',
+                'text=Fecha de nacimiento',
+                ':has-text("Birthday")',
+                ':has-text("Date of Birth")'
+            ]
+            
+            for pattern in birthday_text_patterns:
+                try:
+                    element = await page.query_selector(pattern)
+                    if element and await element.is_visible():
+                        birthday_found = True
+                        break
+                except Exception:
+                    continue
+            
+            print(f"   📊 Birthday fields found: {birthday_found} (count: {birthday_count})")
+            
+            if birthday_found and birthday_count >= 2:
+                print("   ✅ SINGLE_STEP method detected (birthday on initial page)")
+                return "single_step"
+            else:
+                print("   ✅ MULTI_STEP method detected (no birthday on initial page)")
+                return "multi_step"
+                
+        except Exception as e:
+            print(f"   ⚠️ Form method detection error: {e}")
+            # Default to multi_step as it's more common
+            return "multi_step"
+
+    async def _wait_for_birthday_page(self, page, timeout: int = 10) -> bool:
+        """
+        Wait for birthday page to appear after clicking sign up (for multi_step method).
+        Returns True if birthday page detected, False if timeout.
+        """
+        print("   ⏳ Waiting for birthday page...")
+        
+        start_time = asyncio.get_event_loop().time()
+        
+        while (asyncio.get_event_loop().time() - start_time) < timeout:
+            try:
+                # Check for birthday field indicators
+                birthday_indicators = [
+                    'select[name*="birthday"]',
+                    '[aria-label*="birthday" i]',
+                    '[aria-label*="month" i]',
+                    '[aria-label*="year" i]',
+                    '[role="combobox"]',
+                    'select'
+                ]
+                
+                for selector in birthday_indicators:
+                    element = await page.query_selector(selector)
+                    if element and await element.is_visible():
+                        # Verify it's actually a birthday field by checking nearby text
+                        parent_text = await page.evaluate("""() => {
+                            return document.body.innerText.toLowerCase();
+                        }""")
+                        
+                        if any(word in parent_text for word in ['birthday', 'birth', 'tanggal lahir', 'date of birth']):
+                            print("   ✅ Birthday page detected!")
+                            return True
+                
+                await asyncio.sleep(0.5)
+                
+            except Exception:
+                await asyncio.sleep(0.5)
+                continue
+        
+        print("   ⚠️ Birthday page not detected within timeout")
+        return False
+
+    async def _wait_for_otp_page(self, page, timeout: int = 15) -> bool:
+        """
+        Wait for OTP/confirmation code page to appear.
+        Returns True if OTP page detected, False if timeout.
+        """
+        print("   ⏳ Waiting for OTP page...")
+        
+        start_time = asyncio.get_event_loop().time()
+        
+        while (asyncio.get_event_loop().time() - start_time) < timeout:
+            try:
+                # Check for OTP input field
+                otp_selectors = [
+                    'input[placeholder*="confirmation" i]',
+                    'input[placeholder*="code" i]',
+                    'input[aria-label*="confirmation" i]',
+                    'input[aria-label*="code" i]',
+                    'input[name*="code" i]',
+                    'input[name*="otp" i]',
+                    'input[placeholder*="kode" i]',  # Indonesian
+                    'input[placeholder*="verification" i]'
+                ]
+                
+                for selector in otp_selectors:
+                    element = await page.query_selector(selector)
+                    if element and await element.is_visible():
+                        print("   ✅ OTP page detected!")
+                        return True
+                
+                # Also check page content
+                page_text = await page.evaluate("() => document.body.innerText.toLowerCase()")
+                otp_indicators = [
+                    'confirmation code', 'verification code', 'enter the code',
+                    'kode konfirmasi', 'masukkan kode',
+                    'código de confirmación', 'code de confirmation'
+                ]
+                
+                if any(indicator in page_text for indicator in otp_indicators):
+                    print("   ✅ OTP page detected via text content!")
+                    return True
+                
+                await asyncio.sleep(0.5)
+                
+            except Exception:
+                await asyncio.sleep(0.5)
+                continue
+        
+        print("   ⚠️ OTP page not detected within timeout")
         return False
 
     async def _handle_otp_verification(self, page, email: str) -> bool:
