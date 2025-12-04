@@ -7409,6 +7409,18 @@ class Account:
                     else:
                         print(f"   ❌ OTP attempt {otp_attempt + 1} failed")
                         
+                        # Check if we need to close session (OTP not received)
+                        if self.status == 7:
+                            print("   🚫 OTP code not received - closing session for new attempt")
+                            print("   ⏹️ Session will be closed, please start a new session")
+                            break  # Exit the retry loop - need new session
+                        
+                        # Check if phone verification required - close session
+                        if self.status == 6:
+                            print("   📱 Phone verification required - closing session")
+                            print("   ⏹️ Session will be closed, please start a new session")
+                            break  # Exit the retry loop - need new session
+                        
                         if otp_attempt < max_otp_retries:
                             print("   🔄 Preparing for OTP retry with new email...")
                             
