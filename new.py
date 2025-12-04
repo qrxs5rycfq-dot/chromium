@@ -8159,14 +8159,15 @@ class Account:
             profile_dir = temp_profile_dir  # Override dengan temporary directory
             print(f"[start_chromium] 📁 Using temporary profile: {temp_profile_dir}")
             
-            # ========== GET FRESH IDENTITY ==========
-            # Generate synchronized fingerprint for this session
+            # ========== GET FRESH IDENTITY (ONE PER SESSION) ==========
+            # Generate synchronized fingerprint for this session - this identity stays consistent throughout
             identity = self.get_fresh_identity()
-            self.session_identity = identity  # Store for session consistency
+            self.session_identity = identity  # Store for session consistency - NEVER regenerate during session
             
             ip_config = identity.get("ip_config", {})
             webrtc_webgl_fp = identity.get("webrtc_webgl_fingerprint", {})
             device_fp = ip_config.get("device_fingerprint", {})
+            connection_type = ip_config.get("connection_type", "wifi")
             
             # Get synchronized user agent from identity - ALWAYS use identity UA, never fallback
             user_agent = identity.get("user_agent") or device_fp.get("user_agent")
@@ -8177,26 +8178,23 @@ class Account:
                 models = ["SM-G998B", "SM-S908B", "Pixel 7 Pro", "Pixel 8", "POCO F5", "Redmi Note 12"]
                 user_agent = f"Mozilla/5.0 (Linux; Android {random.choice(android_versions)}; {random.choice(models)}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{random.choice(chrome_versions)}.0.0.0 Mobile Safari/537.36"
             
-            # Get viewport from fingerprint
-            screen_config = webrtc_webgl_fp.get("screen", {})
-            viewport = None
-            if screen_config and screen_config.get("width"):
-                viewport = {
-                    "width": screen_config.get("width", 1920),
-                    "height": screen_config.get("height", 1080)
-                }
-            elif self.hb and self.hb.device_profile.get("viewport"):
-                vp = self.hb.device_profile.get("viewport")
-                viewport = {"width": vp[0], "height": vp[1]}
+            # IMPORTANT: Always use DESKTOP viewport to avoid mobile signup flow (phone verification)
+            # Instagram's mobile view often redirects to /accounts/signup/phone/
+            # Desktop viewport ensures we get the email signup form
+            viewport = {"width": 1920, "height": 1080}
             
-            if self.verbose:
-                print("[start_chromium] 🔐 Starting Chromium with SYNCHRONIZED identity:")
-                print(f"  📍 IP: {ip_config.get('ip', 'N/A')} ({ip_config.get('isp', 'Unknown')})")
-                print(f"  📱 Device: {device_fp.get('market_name', device_fp.get('brand', 'Unknown'))}")
-                print(f"  🌐 User Agent: {user_agent[:60] if user_agent else 'Default'}...")
-                print(f"  📺 Viewport: {viewport}")
-                print(f"  🔗 Proxy: {self.bound_proxy[:50] if self.bound_proxy else 'None'}")
-                print(f"  🔢 Identity Rotation: #{self.ip_rotation_count}")
+            # Override connection type display for logging
+            print(f"[start_chromium] ℹ️ Note: Using DESKTOP viewport to avoid phone signup redirect")
+            print(f"[start_chromium] ℹ️ Identity connection type: {connection_type} (but viewport forced to desktop)")
+            
+            print("[start_chromium] 🔐 Starting Chromium with SYNCHRONIZED identity:")
+            print(f"  📍 IP: {ip_config.get('ip', 'N/A')} ({ip_config.get('isp', 'Unknown')})")
+            print(f"  📱 Device: {device_fp.get('market_name', device_fp.get('brand', 'Unknown'))}")
+            print(f"  🌐 User Agent: {user_agent[:60] if user_agent else 'Default'}...")
+            print(f"  📺 Viewport: {viewport}")
+            print(f"  🔗 Proxy: {self.bound_proxy[:50] if self.bound_proxy else 'None'}")
+            print(f"  🔢 Identity Rotation: #{self.ip_rotation_count}")
+            print(f"  ⚠️ This identity will remain CONSISTENT throughout this session")
             
             # Create persistent context menggunakan ChromiumManager
             self.browser_context = await self.chromium_manager.new_browser_context(
@@ -9049,22 +9047,46 @@ class Account:
             
             print("✅ Account data completed!")
 
+            # ========== PRE-NAVIGATION WARMUP ==========
+            print("")
+            print("🔥 STEP 2.5: Pre-Navigation Warmup (Anti-Detection)...")
+            
+            # Warmup browsing to build cookie/session history before signup
+            await self._pre_signup_warmup(page)
+            
             # ========== NAVIGATION ==========
             print("")
             print("🌐 STEP 3: Navigation...")
             
             try:
+                # First, try to access Instagram homepage to get cookies
+                print("   🍪 Getting Instagram cookies first...")
+                try:
+                    await page.goto("https://www.instagram.com/", wait_until="networkidle", timeout=30000)
+                    await asyncio.sleep(3)
+                    
+                    # Wait for Instagram logo to fully load
+                    await self._wait_for_instagram_ready(page)
+                    
+                except Exception as e:
+                    print(f"   ⚠️ Homepage warmup skipped: {e}")
+                
                 urls_to_try = [
                     "https://www.instagram.com/accounts/emailsignup/",
                     "https://instagram.com/accounts/emailsignup/",
                 ]
                 
                 success = False
+                phone_signup_detected = False
+                
                 for i, url in enumerate(urls_to_try):
                     print("   🔗 Attempt %d: %s", i+1, url)
                     try:
                         await page.goto(url, wait_until="networkidle", timeout=45000)
                         await asyncio.sleep(4)
+                        
+                        # Wait for page to fully load
+                        await self._wait_for_instagram_ready(page)
                         
                         page_title = (await page.title()).lower()
                         page_url = page.url.lower()
@@ -9072,10 +9094,29 @@ class Account:
                         print("   📄 Page title: %s", page_title)
                         print("   🔗 Current URL: %s", page_url)
                         
-                        if any(keyword in page_url or keyword in page_title for keyword in ['signup', 'join', 'create']):
-                            print("   ✅ Successfully reached signup page!")
-                            success = True
-                            break
+                        # Check if redirected to phone signup
+                        if '/signup/phone' in page_url or 'phone' in page_url:
+                            print("   ⚠️ PHONE SIGNUP DETECTED - Instagram flagged this session")
+                            phone_signup_detected = True
+                            
+                            # Try to bypass phone signup
+                            bypass_success = await self._try_bypass_phone_signup(page)
+                            if bypass_success:
+                                print("   ✅ Successfully bypassed phone signup!")
+                                success = True
+                                break
+                            else:
+                                print("   ❌ Could not bypass phone signup - session flagged")
+                                # This session is compromised, need new identity
+                                self.status = 6  # Phone required
+                                return self._return_data()
+                        
+                        if any(keyword in page_url or keyword in page_title for keyword in ['emailsignup', 'join', 'create']):
+                            # Make sure it's email signup, not phone
+                            if '/signup/phone' not in page_url:
+                                print("   ✅ Successfully reached EMAIL signup page!")
+                                success = True
+                                break
                         else:
                             logger.warning("   ⚠️ Not on signup page, trying next...")
                             
@@ -9084,13 +9125,18 @@ class Account:
                         continue
                 
                 if not success:
-                    logger.error("   ❌ All navigation attempts failed")
+                    if phone_signup_detected:
+                        print("   ❌ Session flagged for phone verification - closing session")
+                        self.status = 6
+                    else:
+                        logger.error("   ❌ All navigation attempts failed")
+                        self.status = 4
+                    
                     try:
                         await page.screenshot(path="./debug_initial_page.png", timeout=5000)
                         print("   📸 Screenshot saved")
                     except Exception as e:
                         print("   ⚠️ Screenshot skipped: %s", e)
-                    self.status = 4
                     return self._return_data()
                 
                 try:
@@ -15135,6 +15181,174 @@ class Account:
             
         except Exception as e:
             logger.error(f"Error waiting for loading: {e}")
+            return False
+
+    async def _pre_signup_warmup(self, page) -> bool:
+        """Pre-signup warmup to build browsing history and avoid detection"""
+        try:
+            print("   🔥 Starting pre-signup warmup...")
+            
+            # 1. Visit Instagram homepage first
+            try:
+                await page.goto("https://www.instagram.com/", wait_until="domcontentloaded", timeout=20000)
+                await asyncio.sleep(random.uniform(2, 4))
+                print("   ✅ Visited Instagram homepage")
+            except Exception as e:
+                print(f"   ⚠️ Homepage visit skipped: {e}")
+            
+            # 2. Simulate human-like scrolling on homepage
+            try:
+                await page.evaluate("""
+                    () => {
+                        return new Promise((resolve) => {
+                            let scrolled = 0;
+                            const interval = setInterval(() => {
+                                window.scrollBy(0, Math.random() * 100 + 50);
+                                scrolled++;
+                                if (scrolled >= 3) {
+                                    clearInterval(interval);
+                                    resolve();
+                                }
+                            }, 500);
+                        });
+                    }
+                """)
+                print("   ✅ Simulated natural scrolling")
+            except Exception:
+                pass
+            
+            # 3. Random delay to appear more human
+            await asyncio.sleep(random.uniform(1, 3))
+            
+            # 4. Visit explore or about page for more history
+            warmup_urls = [
+                "https://www.instagram.com/about/",
+                "https://www.instagram.com/legal/terms/",
+            ]
+            
+            try:
+                warmup_url = random.choice(warmup_urls)
+                await page.goto(warmup_url, wait_until="domcontentloaded", timeout=15000)
+                await asyncio.sleep(random.uniform(1, 2))
+                print(f"   ✅ Visited: {warmup_url}")
+            except Exception:
+                pass
+            
+            print("   ✅ Pre-signup warmup complete!")
+            return True
+            
+        except Exception as e:
+            print(f"   ⚠️ Warmup error (continuing anyway): {e}")
+            return False
+
+    async def _wait_for_instagram_ready(self, page, timeout: int = 15) -> bool:
+        """Wait for Instagram page to be fully loaded (logo, form elements)"""
+        try:
+            print("   ⏳ Waiting for Instagram to fully load...")
+            start_time = asyncio.get_event_loop().time()
+            
+            while (asyncio.get_event_loop().time() - start_time) < timeout:
+                # Check for Instagram logo or key elements
+                ready_indicators = [
+                    'img[alt*="Instagram" i]',
+                    'svg[aria-label*="Instagram" i]',
+                    'input[name="emailOrPhone"]',
+                    'input[name="password"]',
+                    'input[aria-label*="email" i]',
+                    'input[aria-label*="phone" i]',
+                    'button:has-text("Sign up")',
+                    'button:has-text("Log in")',
+                ]
+                
+                elements_found = 0
+                for selector in ready_indicators:
+                    try:
+                        el = await page.query_selector(selector)
+                        if el and await el.is_visible():
+                            elements_found += 1
+                    except Exception:
+                        continue
+                
+                # Need at least 2 elements to confirm page is ready
+                if elements_found >= 2:
+                    print(f"   ✅ Instagram ready ({elements_found} elements found)")
+                    return True
+                
+                await asyncio.sleep(1)
+            
+            print("   ⚠️ Instagram ready check timeout (continuing anyway)")
+            return False
+            
+        except Exception as e:
+            print(f"   ⚠️ Instagram ready check error: {e}")
+            return False
+
+    async def _try_bypass_phone_signup(self, page) -> bool:
+        """Try to bypass phone signup page and get to email signup"""
+        try:
+            print("   🔄 Attempting to bypass phone signup...")
+            
+            # Strategy 1: Look for "Sign up with email" link
+            email_signup_selectors = [
+                'a:has-text("Sign up with email")',
+                'a:has-text("Use email instead")',
+                'button:has-text("Sign up with email")',
+                'button:has-text("Use email")',
+                '[role="link"]:has-text("email")',
+                'a[href*="emailsignup"]',
+            ]
+            
+            for selector in email_signup_selectors:
+                try:
+                    el = await page.query_selector(selector)
+                    if el and await el.is_visible():
+                        await el.click()
+                        await asyncio.sleep(3)
+                        
+                        # Check if we got to email signup
+                        current_url = page.url.lower()
+                        if 'emailsignup' in current_url and '/phone' not in current_url:
+                            print("   ✅ Found and clicked email signup link!")
+                            return True
+                except Exception:
+                    continue
+            
+            # Strategy 2: Navigate directly to email signup
+            print("   🔄 Trying direct navigation to email signup...")
+            try:
+                await page.goto("https://www.instagram.com/accounts/emailsignup/", 
+                              wait_until="networkidle", timeout=20000)
+                await asyncio.sleep(3)
+                
+                current_url = page.url.lower()
+                if 'emailsignup' in current_url and '/phone' not in current_url:
+                    print("   ✅ Direct navigation to email signup successful!")
+                    return True
+            except Exception as e:
+                print(f"   ❌ Direct navigation failed: {e}")
+            
+            # Strategy 3: Clear cookies and try again
+            print("   🔄 Clearing cookies and retrying...")
+            try:
+                await page.context.clear_cookies()
+                await asyncio.sleep(1)
+                
+                await page.goto("https://www.instagram.com/accounts/emailsignup/", 
+                              wait_until="networkidle", timeout=20000)
+                await asyncio.sleep(3)
+                
+                current_url = page.url.lower()
+                if 'emailsignup' in current_url and '/phone' not in current_url:
+                    print("   ✅ Cookie clear + retry successful!")
+                    return True
+            except Exception as e:
+                print(f"   ❌ Cookie clear retry failed: {e}")
+            
+            print("   ❌ All bypass strategies failed - session is flagged")
+            return False
+            
+        except Exception as e:
+            print(f"   ❌ Bypass error: {e}")
             return False
 
     async def _wait_for_button_ready(self, page, button_selector: str = None, timeout: int = 15) -> bool:
