@@ -639,13 +639,14 @@ class AdvancedIPStealthSystem2025:
         
         device = random.choice(devices)
         
-        # Dynamic Chrome version (latest stable versions)
-        chrome_major = random.choice([120, 121, 122, 123, 124, 125, 126, 127])
-        chrome_build = random.randint(6000, 6500)
-        chrome_patch = random.randint(50, 200)
+        # Use stable Chrome/Chromium version (118-122 for better Instagram compatibility)
+        chrome_major = random.choice([118, 119, 120, 121, 122])
+        chrome_build = random.randint(5900, 6200)
+        chrome_patch = random.randint(50, 150)
         chrome_version = f"{chrome_major}.0.{chrome_build}.{chrome_patch}"
         
         # Generate synchronized user agent based on OS
+        # Using Chromium identifier since Playwright uses Chromium
         if device["os"] == "macOS":
             # macOS version mapping for user agent
             macos_versions = {
@@ -653,6 +654,7 @@ class AdvancedIPStealthSystem2025:
                 "13.6": "10_15_7", "13.5": "10_15_7"
             }
             mac_ua_version = macos_versions.get(device["os_version"], "10_15_7")
+            # Standard Chrome UA (Chromium uses same format)
             user_agent = f"Mozilla/5.0 (Macintosh; Intel Mac OS X {mac_ua_version}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{chrome_version} Safari/537.36"
         else:
             # Windows version
@@ -10420,7 +10422,41 @@ class Account:
                 detected_fields.update(birthday_fields)
                 has_birthday = True
             
-            # 3. Print what we found
+            # 3. If NO fields detected, page might still be loading - wait and retry
+            if len(detected_fields) == 0:
+                print("   ⏳ No fields detected yet, waiting for form to load...")
+                form_wait_attempts = 0
+                max_form_wait = 10  # Max 30 seconds (10 x 3s)
+                
+                while len(detected_fields) == 0 and form_wait_attempts < max_form_wait:
+                    form_wait_attempts += 1
+                    await asyncio.sleep(3)
+                    print(f"   ⏳ Waiting for form... (attempt {form_wait_attempts}/{max_form_wait})")
+                    
+                    # Re-check for fields
+                    standard_fields = await self._detect_all_form_fields(page)
+                    detected_fields.update(standard_fields)
+                    
+                    birthday_fields = await self._detect_birthday_fields_comprehensive(page)
+                    if birthday_fields:
+                        detected_fields.update(birthday_fields)
+                        has_birthday = True
+                    
+                    # Check if we found something
+                    if len(detected_fields) > 0:
+                        print(f"   ✅ Form loaded! Found {len(detected_fields)} fields")
+                        break
+                    
+                    # Check if already on OTP page
+                    if await self._is_otp_page(page):
+                        print("   🎉 Already on OTP page!")
+                        self.status = 2
+                        return True
+                
+                if len(detected_fields) == 0:
+                    print("   ⚠️ Timeout waiting for form, will try to proceed anyway...")
+            
+            # 4. Print what we found
             print(f"   📊 Found {len(detected_fields)} fields on this page:")
             for field_type in ['email', 'password', 'fullname', 'username', 'month', 'day', 'year']:
                 if field_type in detected_fields:
