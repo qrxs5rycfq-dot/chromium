@@ -3946,7 +3946,7 @@ class HeaderBuilderV5:
             "Upgrade-Insecure-Requests": "1",
             "Cache-Control": "max-age=0",
             "Sec-Ch-Ua": self._sec_ch_ua(chrome_ver),
-            "Sec-Ch-Ua-Mobile": "?1" if f["mobile"] else "?0",
+            "Sec-Ch-Ua-Mobile": "?0",  # ALWAYS desktop
             "Sec-Ch-Ua-Platform": f'"{f["platform_label"]}"',
             "Sec-Ch-Ua-Full-Version": f'"{f["chrome"]}"',
             "Sec-Fetch-Site": "same-origin",
