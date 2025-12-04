@@ -50,6 +50,17 @@ except ImportError:
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
+# OCR for captcha solving
+try:
+    import pytesseract
+    from PIL import Image
+    import io
+    HAVE_OCR = True
+except ImportError:
+    HAVE_OCR = False
+    print("⚠️ OCR libraries not found. Install with: pip install pytesseract pillow")
+    print("   Also install Tesseract OCR: https://github.com/tesseract-ocr/tesseract")
+
 # Init
 fake = Faker()
 init(autoreset=True)
@@ -10467,12 +10478,43 @@ class Account:
                         print("   🎉 SUCCESS: Reached home page!")
                         return True
                     
-                    # 4. CHECK: Is account suspended?
-                    if await self._is_account_suspended(page):
-                        print("   🚫 FAILED: Account suspended!")
-                        self.status = 5
-                        await self._handle_suspended_account(page)
+                    # 3.5. CHECK: Phone verification required? = CLOSE SESSION
+                    if await self._is_phone_verification_page(page):
+                        print("   📱 Phone verification required - closing session immediately")
+                        print("   🔄 Will create new session with fresh account")
+                        self.status = 6  # Status for phone required
+                        try:
+                            await page.close()
+                        except Exception:
+                            pass
                         return False
+                    
+                    # 4. CHECK: Is account suspended? Try to recover via human confirmation
+                    if await self._is_account_suspended(page):
+                        print("   🚫 Account suspended detected, attempting recovery...")
+                        recovery_result = await self._handle_suspend_recovery(page)
+                        if recovery_result == 'success':
+                            print("   ✅ Suspend recovery successful!")
+                            return True
+                        elif recovery_result == 'continue':
+                            print("   🔄 Suspend recovery in progress, continuing...")
+                            same_state_count = 0
+                            await asyncio.sleep(2)
+                            continue
+                        elif recovery_result == 'phone_required':
+                            print("   📱 Phone verification required - closing session")
+                            print("   🔄 Will create new session with fresh account")
+                            self.status = 6  # Status for phone required
+                            # Close current page/context to force new session
+                            try:
+                                await page.close()
+                            except Exception:
+                                pass
+                            return False
+                        else:
+                            print("   🚫 FAILED: Account suspended, recovery failed!")
+                            self.status = 5
+                            return False
                     
                     # 5. CHECK: Any form fields to fill?
                     page_result = await self._detect_and_fill_current_page(page, otp_code)
@@ -10874,6 +10916,691 @@ class Account:
         except Exception as e:
             logger.error(f"Error handling suspended account: {e}")
             return {'is_suspended': True, 'reason': str(e)}
+
+    async def _handle_suspend_recovery(self, page) -> str:
+        """
+        Handle suspend recovery by attempting human confirmation flow.
+        
+        Flow options:
+        1. Suspend → Confirm Human (Continue) → Home = SUCCESS
+        2. Suspend → Confirm Human (Continue) → Captcha → Continue → Home = SUCCESS
+        3. Suspend → Confirm Human (Continue) → Captcha → Continue → Phone = PHONE_REQUIRED
+        4. Cannot recover = FAILED
+        
+        Returns: 'success', 'continue', 'phone_required', or 'failed'
+        """
+        print("   🔄 Starting suspend recovery process...")
+        
+        try:
+            max_recovery_steps = 10
+            
+            for step in range(max_recovery_steps):
+                print(f"\n   📋 Recovery Step {step + 1}/{max_recovery_steps}")
+                
+                # Wait for loading to complete first
+                await self._wait_for_loading_complete(page, timeout=15)
+                current_url = page.url.lower()
+                print(f"   🔗 URL: {current_url}")
+                
+                # Check if we reached home page = SUCCESS
+                if await self._is_on_home_page(page):
+                    print("   🎉 Recovery SUCCESS: Reached home page!")
+                    return 'success'
+                
+                # Check for phone verification requirement
+                if await self._is_phone_verification_page(page):
+                    print("   📱 Phone verification required")
+                    return 'phone_required'
+                
+                # Check for captcha/image verification page
+                if await self._is_captcha_page(page):
+                    print("   🔢 Captcha page detected, attempting to solve...")
+                    captcha_result = await self._handle_captcha_page(page)
+                    if captcha_result:
+                        # Captcha solved and reached home or still in progress
+                        if await self._is_on_home_page(page):
+                            return 'success'
+                        # Check if we need phone verification after captcha
+                        if await self._is_phone_verification_page(page):
+                            return 'phone_required'
+                        continue
+                    else:
+                        # Check if failed due to phone verification
+                        if await self._is_phone_verification_page(page):
+                            return 'phone_required'
+                        print("   ❌ Captcha solving failed")
+                        return 'failed'
+                
+                # Check for appeal in progress page - wait for redirect
+                if await self._is_appeal_in_progress_page(page):
+                    print("   ⏳ Appeal in progress, waiting for redirect...")
+                    await asyncio.sleep(5)
+                    continue
+                
+                # Check for "Confirm you're human" / human verification page
+                if await self._is_human_confirmation_suspend_page(page):
+                    print("   👤 Human confirmation page detected")
+                    clicked = await self._click_continue_button(page)
+                    if clicked:
+                        print("   ✅ Clicked Continue/Selanjutnya button")
+                        await asyncio.sleep(2)
+                        continue
+                    else:
+                        print("   ⚠️ Could not find Continue button")
+                
+                # Try to find and click any Continue/Next button
+                clicked = await self._click_continue_button(page)
+                if clicked:
+                    print("   ✅ Clicked action button")
+                    await asyncio.sleep(2)
+                    continue
+                
+                # If we're still on suspended page with no action, try opening the link
+                if '/suspended' in current_url or '/challenge' in current_url:
+                    # Check if there's a specific action link
+                    action_link = await page.query_selector('a[href*="challenge"], a[href*="confirm"]')
+                    if action_link:
+                        try:
+                            await action_link.click()
+                            print("   ✅ Clicked action link")
+                            await asyncio.sleep(2)
+                            continue
+                        except Exception:
+                            pass
+                
+                # No progress made
+                print("   ⏳ Waiting for page update...")
+                await asyncio.sleep(3)
+            
+            # Max steps reached - do final check
+            print("   ⏰ Recovery max steps reached, final check...")
+            if await self._is_on_home_page(page):
+                return 'success'
+            if await self._is_phone_verification_page(page):
+                return 'phone_required'
+            return 'failed'
+            
+        except Exception as e:
+            logger.error(f"Error in suspend recovery: {e}")
+            return 'failed'
+
+    async def _is_phone_verification_page(self, page) -> bool:
+        """Check if we're on a phone verification page"""
+        try:
+            current_url = page.url.lower()
+            
+            # URL patterns for phone verification
+            phone_url_patterns = ['/challenge/phone', '/phone', 'phonenumber', '/sms']
+            if any(pattern in current_url for pattern in phone_url_patterns):
+                return True
+            
+            # Check for phone input field
+            phone_selectors = [
+                'input[type="tel"]',
+                'input[placeholder*="phone" i]',
+                'input[placeholder*="nomor" i]',
+                'input[name*="phone" i]',
+                'input[aria-label*="phone" i]',
+                'input[placeholder*="mobile" i]'
+            ]
+            
+            for selector in phone_selectors:
+                element = await page.query_selector(selector)
+                if element and await element.is_visible():
+                    return True
+            
+            # Check for phone-related text
+            content = await page.evaluate("() => document.body.innerText")
+            content_lower = content.lower()
+            phone_indicators = [
+                'enter phone number',
+                'add phone number',
+                'verify your phone',
+                'masukkan nomor telepon',
+                'tambahkan nomor telepon',
+                'verifikasi nomor telepon',
+                'we\'ll send you a code',
+                'kirim kode ke nomor'
+            ]
+            
+            if any(indicator in content_lower for indicator in phone_indicators):
+                return True
+            
+            return False
+        except Exception as e:
+            logger.error(f"Error checking phone verification page: {e}")
+            return False
+
+    async def _is_captcha_page(self, page) -> bool:
+        """Check if we're on a captcha/image verification page"""
+        try:
+            # Check for captcha-related elements
+            captcha_selectors = [
+                'input[placeholder*="code" i]',
+                'input[aria-label*="code" i]',
+                'img[alt*="captcha" i]',
+                'img[alt*="security" i]',
+                'canvas',  # Sometimes captcha is in canvas
+                '[data-testid="captcha"]',
+                'div[class*="captcha"]'
+            ]
+            
+            for selector in captcha_selectors:
+                element = await page.query_selector(selector)
+                if element and await element.is_visible():
+                    # Additional check: is there an image nearby?
+                    # Captcha pages typically have an image with numbers to type
+                    img_element = await page.query_selector('img')
+                    if img_element:
+                        return True
+            
+            # Check for captcha-related text
+            content = await page.evaluate("() => document.body.innerText")
+            content_lower = content.lower()
+            captcha_indicators = [
+                'type the code',
+                'enter the code',
+                'ketik kode',
+                'masukkan kode yang terlihat',
+                'enter the text you see',
+                'type the characters',
+                'security check',
+                'verify you are human'
+            ]
+            
+            if any(indicator in content_lower for indicator in captcha_indicators):
+                # But not if it's OTP confirmation code
+                if 'confirmation code' not in content_lower and 'kode konfirmasi' not in content_lower:
+                    return True
+            
+            return False
+        except Exception as e:
+            logger.error(f"Error checking captcha page: {e}")
+            return False
+
+    async def _handle_captcha_page(self, page) -> bool:
+        """Handle captcha page - try OCR first, then fallback to manual input"""
+        try:
+            print("   🔢 CAPTCHA DETECTED")
+            
+            # Find the captcha image
+            captcha_image_data = await self._get_captcha_image(page)
+            captcha_code = None
+            
+            if captcha_image_data and HAVE_OCR:
+                # Try OCR to read the captcha
+                print("   🤖 Attempting OCR to read captcha...")
+                captcha_code = await self._solve_captcha_with_ocr(captcha_image_data)
+                
+                if captcha_code:
+                    print(f"   ✅ OCR detected code: {captcha_code}")
+                else:
+                    print("   ⚠️ OCR could not read captcha clearly")
+            
+            # If OCR failed or not available, try manual input
+            if not captcha_code:
+                # Take screenshot for reference
+                try:
+                    timestamp = int(time.time())
+                    screenshot_path = f"captcha_{timestamp}.png"
+                    await page.screenshot(path=screenshot_path, timeout=3000)
+                    print(f"   📸 Captcha screenshot saved: {screenshot_path}")
+                except Exception:
+                    pass
+                
+                print("   📷 Manual input required")
+                captcha_code = input("   ❓ Enter the captcha code from the image: ").strip()
+                
+                if not captcha_code:
+                    print("   ⏭️ Captcha skipped by user")
+                    return False
+            
+            # Find the captcha input field
+            captcha_input = await self._find_captcha_input(page)
+            
+            if not captcha_input:
+                print("   ❌ Could not find captcha input field")
+                return False
+            
+            # Enter the captcha code
+            await captcha_input.click()
+            await asyncio.sleep(0.3)
+            await captcha_input.fill("")
+            await asyncio.sleep(0.2)
+            await captcha_input.type(captcha_code, delay=50)
+            await asyncio.sleep(0.5)
+            
+            print(f"   ✅ Captcha code entered: {captcha_code}")
+            
+            # Click continue/submit button
+            clicked = await self._click_continue_button(page)
+            if clicked:
+                print("   ✅ Submitted captcha")
+            else:
+                # Try pressing Enter
+                await page.keyboard.press('Enter')
+                print("   ⌨️ Pressed Enter to submit captcha")
+            
+            await asyncio.sleep(2)
+            await self._wait_for_loading_complete(page, timeout=15)
+            
+            # Check if captcha was wrong (still on same page with error)
+            if await self._is_captcha_error(page):
+                print("   ❌ Captcha was incorrect, retrying...")
+                # Retry with manual input
+                return await self._handle_captcha_retry(page)
+            
+            # After captcha, wait for result - could be appeal page or phone verification
+            result = await self._wait_for_post_captcha_result(page)
+            return result
+                
+        except Exception as e:
+            logger.error(f"Error handling captcha: {e}")
+            return False
+
+    async def _get_captcha_image(self, page) -> Optional[bytes]:
+        """Extract captcha image from page"""
+        try:
+            # Try to find captcha image element
+            image_selectors = [
+                'img[alt*="captcha" i]',
+                'img[alt*="security" i]',
+                'img[alt*="code" i]',
+                'img[src*="captcha" i]',
+                'img[src*="security" i]',
+                'div[class*="captcha"] img',
+                'form img',
+                # Generic image near input field
+                'img'
+            ]
+            
+            for selector in image_selectors:
+                try:
+                    img_element = await page.query_selector(selector)
+                    if img_element and await img_element.is_visible():
+                        # Get bounding box to check if it's reasonably sized for captcha
+                        bbox = await img_element.bounding_box()
+                        if bbox and 50 < bbox['width'] < 500 and 20 < bbox['height'] < 200:
+                            # Take screenshot of just the image element
+                            image_bytes = await img_element.screenshot()
+                            if image_bytes:
+                                print(f"   📷 Captured captcha image ({bbox['width']}x{bbox['height']})")
+                                return image_bytes
+                except Exception:
+                    continue
+            
+            # Fallback: Try to get image from canvas
+            try:
+                canvas = await page.query_selector('canvas')
+                if canvas and await canvas.is_visible():
+                    image_bytes = await canvas.screenshot()
+                    if image_bytes:
+                        print("   📷 Captured captcha from canvas")
+                        return image_bytes
+            except Exception:
+                pass
+            
+            return None
+        except Exception as e:
+            logger.error(f"Error getting captcha image: {e}")
+            return None
+
+    async def _solve_captcha_with_ocr(self, image_data: bytes) -> Optional[str]:
+        """Use OCR to read text/numbers from captcha image"""
+        try:
+            if not HAVE_OCR:
+                return None
+            
+            # Load image from bytes
+            image = Image.open(io.BytesIO(image_data))
+            
+            # Preprocess image for better OCR
+            image = self._preprocess_captcha_image(image)
+            
+            # Try different OCR configurations
+            configs = [
+                # Numbers only (most common for Instagram captcha)
+                '--psm 7 -c tessedit_char_whitelist=0123456789',
+                # Single line, numbers only
+                '--psm 8 -c tessedit_char_whitelist=0123456789',
+                # Single word
+                '--psm 8',
+                # Sparse text
+                '--psm 11 -c tessedit_char_whitelist=0123456789',
+                # Default
+                '--psm 7',
+            ]
+            
+            for config in configs:
+                try:
+                    text = pytesseract.image_to_string(image, config=config)
+                    # Clean up the result
+                    cleaned = ''.join(c for c in text if c.isdigit())
+                    
+                    # Instagram captcha usually 4-8 digits
+                    if 4 <= len(cleaned) <= 8:
+                        print(f"   🔍 OCR result with config '{config}': {cleaned}")
+                        return cleaned
+                except Exception:
+                    continue
+            
+            # Try alphanumeric if numeric didn't work
+            try:
+                text = pytesseract.image_to_string(image, config='--psm 7')
+                cleaned = ''.join(c for c in text if c.isalnum())
+                if 4 <= len(cleaned) <= 10:
+                    print(f"   🔍 OCR alphanumeric result: {cleaned}")
+                    return cleaned
+            except Exception:
+                pass
+            
+            return None
+        except Exception as e:
+            logger.error(f"OCR error: {e}")
+            return None
+
+    def _preprocess_captcha_image(self, image: 'Image.Image') -> 'Image.Image':
+        """Preprocess captcha image for better OCR accuracy"""
+        try:
+            # Convert to grayscale
+            if image.mode != 'L':
+                image = image.convert('L')
+            
+            # Resize for better OCR (2x)
+            width, height = image.size
+            image = image.resize((width * 2, height * 2), Image.LANCZOS)
+            
+            # Increase contrast
+            from PIL import ImageEnhance
+            enhancer = ImageEnhance.Contrast(image)
+            image = enhancer.enhance(2.0)
+            
+            # Binarize (convert to black and white)
+            threshold = 128
+            image = image.point(lambda p: 255 if p > threshold else 0)
+            
+            return image
+        except Exception:
+            return image
+
+    async def _find_captcha_input(self, page) -> Optional[Any]:
+        """Find the captcha input field"""
+        input_selectors = [
+            'input[placeholder*="code" i]',
+            'input[aria-label*="code" i]',
+            'input[placeholder*="captcha" i]',
+            'input[name*="captcha" i]',
+            'input[name*="code" i]',
+            'input[type="text"]:not([name*="email"]):not([name*="password"])',
+            'input[type="number"]',
+            'input:not([type="hidden"]):not([type="email"]):not([type="password"]):not([type="checkbox"])'
+        ]
+        
+        for selector in input_selectors:
+            try:
+                element = await page.query_selector(selector)
+                if element and await element.is_visible():
+                    return element
+            except Exception:
+                continue
+        
+        return None
+
+    async def _is_captcha_error(self, page) -> bool:
+        """Check if there's a captcha error (wrong code entered)"""
+        try:
+            content = await page.evaluate("() => document.body.innerText")
+            content_lower = content.lower()
+            
+            error_indicators = [
+                'incorrect',
+                'wrong',
+                'invalid',
+                'try again',
+                'salah',
+                'tidak valid',
+                'coba lagi',
+                'error'
+            ]
+            
+            # Check if still on captcha page with error
+            if await self._is_captcha_page(page):
+                if any(indicator in content_lower for indicator in error_indicators):
+                    return True
+            
+            return False
+        except Exception:
+            return False
+
+    async def _handle_captcha_retry(self, page) -> bool:
+        """Retry captcha with manual input after OCR failure"""
+        print("   🔄 Retrying captcha with manual input...")
+        
+        try:
+            # Take new screenshot
+            timestamp = int(time.time())
+            screenshot_path = f"captcha_retry_{timestamp}.png"
+            await page.screenshot(path=screenshot_path, timeout=3000)
+            print(f"   📸 New screenshot saved: {screenshot_path}")
+        except Exception:
+            pass
+        
+        # Manual input
+        captcha_code = input("   ❓ Enter the captcha code (retry): ").strip()
+        
+        if not captcha_code:
+            print("   ⏭️ Captcha retry skipped")
+            return False
+        
+        # Find and fill input
+        captcha_input = await self._find_captcha_input(page)
+        if not captcha_input:
+            print("   ❌ Could not find captcha input for retry")
+            return False
+        
+        await captcha_input.click()
+        await asyncio.sleep(0.3)
+        await captcha_input.fill("")
+        await asyncio.sleep(0.2)
+        await captcha_input.type(captcha_code, delay=50)
+        await asyncio.sleep(0.5)
+        
+        print(f"   ✅ Retry captcha entered: {captcha_code}")
+        
+        # Submit
+        clicked = await self._click_continue_button(page)
+        if not clicked:
+            await page.keyboard.press('Enter')
+        
+        await asyncio.sleep(2)
+        await self._wait_for_loading_complete(page, timeout=15)
+        
+        return await self._wait_for_post_captcha_result(page)
+
+    async def _wait_for_post_captcha_result(self, page) -> bool:
+        """Wait for result after captcha submission - appeal page or phone verification"""
+        print("   ⏳ Waiting for post-captcha result...")
+        
+        max_wait_time = 120  # Max 2 minutes to wait for appeal to redirect
+        start_time = asyncio.get_event_loop().time()
+        
+        while (asyncio.get_event_loop().time() - start_time) < max_wait_time:
+            try:
+                await self._wait_for_loading_complete(page, timeout=10)
+                current_url = page.url.lower()
+                elapsed = asyncio.get_event_loop().time() - start_time
+                
+                print(f"   🔍 Post-captcha check at {elapsed:.1f}s - URL: {current_url[:60]}...")
+                
+                # SUCCESS: Reached home page
+                if await self._is_on_home_page(page):
+                    print("   🎉 SUCCESS: Reached home page after captcha!")
+                    return True
+                
+                # FAIL: Phone verification required - close session immediately
+                if await self._is_phone_verification_page(page):
+                    print("   📱 Phone verification required after captcha - closing session")
+                    return False
+                
+                # IN PROGRESS: Appeal page - wait for redirect
+                if await self._is_appeal_in_progress_page(page):
+                    print("   ⏳ Appeal in progress, waiting for redirect to homepage...")
+                    await asyncio.sleep(5)
+                    continue
+                
+                # Still on some intermediate page
+                await asyncio.sleep(3)
+                
+            except Exception as e:
+                logger.error(f"Error in post-captcha wait: {e}")
+                await asyncio.sleep(2)
+        
+        print("   ⏰ Timeout waiting for post-captcha result")
+        # Final check
+        if await self._is_on_home_page(page):
+            return True
+        return False
+
+    async def _is_appeal_in_progress_page(self, page) -> bool:
+        """Check if we're on an appeal in progress page"""
+        try:
+            content = await page.evaluate("() => document.body.innerText")
+            content_lower = content.lower()
+            
+            appeal_indicators = [
+                'appeal',
+                'banding',
+                'review',
+                'sedang diproses',
+                'sedang ditinjau',
+                'in progress',
+                'under review',
+                'we\'re reviewing',
+                'kami sedang meninjau',
+                'request received',
+                'permintaan diterima',
+                'please wait',
+                'mohon tunggu',
+                'we\'ll let you know',
+                'kami akan memberi tahu'
+            ]
+            
+            if any(indicator in content_lower for indicator in appeal_indicators):
+                # But not if we're on home page
+                if not await self._is_on_home_page(page):
+                    return True
+            
+            # Check URL for appeal patterns
+            current_url = page.url.lower()
+            if '/appeal' in current_url or '/review' in current_url or '/pending' in current_url:
+                return True
+            
+            return False
+        except Exception as e:
+            logger.error(f"Error checking appeal page: {e}")
+            return False
+
+    async def _is_human_confirmation_suspend_page(self, page) -> bool:
+        """Check if we're on a human confirmation page from suspend"""
+        try:
+            content = await page.evaluate("() => document.body.innerText")
+            content_lower = content.lower()
+            
+            human_indicators = [
+                'confirm you\'re human',
+                'konfirmasi bahwa anda manusia',
+                'verify you\'re human',
+                'verifikasi bahwa anda manusia',
+                'we need to confirm',
+                'kami perlu memastikan',
+                'security check',
+                'pemeriksaan keamanan'
+            ]
+            
+            if any(indicator in content_lower for indicator in human_indicators):
+                return True
+            
+            # Also check URL
+            current_url = page.url.lower()
+            if '/challenge' in current_url or '/confirm' in current_url:
+                return True
+            
+            return False
+        except Exception as e:
+            logger.error(f"Error checking human confirmation page: {e}")
+            return False
+
+    async def _click_continue_button(self, page) -> bool:
+        """Click Continue/Selanjutnya/Next button"""
+        try:
+            # Multi-language button texts
+            button_texts = [
+                'Continue',
+                'Selanjutnya',
+                'Next',
+                'Lanjutkan',
+                'Submit',
+                'Kirim',
+                'Verify',
+                'Verifikasi',
+                'Confirm',
+                'Konfirmasi',
+                'OK',
+                'Done',
+                'Selesai'
+            ]
+            
+            for text in button_texts:
+                # Try exact match first
+                button = await page.query_selector(f'button:has-text("{text}")')
+                if button:
+                    try:
+                        is_visible = await button.is_visible()
+                        is_enabled = await button.is_enabled()
+                        if is_visible and is_enabled:
+                            await button.click()
+                            return True
+                    except Exception:
+                        continue
+                
+                # Try role button
+                button = await page.query_selector(f'[role="button"]:has-text("{text}")')
+                if button:
+                    try:
+                        is_visible = await button.is_visible()
+                        if is_visible:
+                            await button.click()
+                            return True
+                    except Exception:
+                        continue
+                
+                # Try div that looks like button
+                button = await page.query_selector(f'div:has-text("{text}"):not(:has(div:has-text("{text}")))')
+                if button:
+                    try:
+                        is_visible = await button.is_visible()
+                        if is_visible:
+                            await button.click()
+                            return True
+                    except Exception:
+                        continue
+            
+            # Try submit button
+            submit_btn = await page.query_selector('button[type="submit"]')
+            if submit_btn:
+                try:
+                    is_visible = await submit_btn.is_visible()
+                    is_enabled = await submit_btn.is_enabled()
+                    if is_visible and is_enabled:
+                        await submit_btn.click()
+                        return True
+                except Exception:
+                    pass
+            
+            return False
+        except Exception as e:
+            logger.error(f"Error clicking continue button: {e}")
+            return False
 
     async def _handle_stuck_loading(self, page, otp_code: str) -> bool:
         """Handle stuck loading by reloading page and re-entering OTP code"""
