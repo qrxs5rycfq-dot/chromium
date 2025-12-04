@@ -11182,44 +11182,85 @@ class Account:
     async def _is_captcha_page(self, page) -> bool:
         """Check if we're on a captcha/image verification page"""
         try:
-            # Check for captcha-related elements
-            captcha_selectors = [
-                'input[placeholder*="code" i]',
-                'input[aria-label*="code" i]',
-                'img[alt*="captcha" i]',
-                'img[alt*="security" i]',
-                'canvas',  # Sometimes captcha is in canvas
-                '[data-testid="captcha"]',
-                'div[class*="captcha"]'
-            ]
+            # First check URL for captcha/challenge patterns
+            current_url = page.url.lower()
+            if any(pattern in current_url for pattern in ['challenge', 'captcha', 'recaptcha']):
+                return True
             
-            for selector in captcha_selectors:
-                element = await page.query_selector(selector)
-                if element and await element.is_visible():
-                    # Additional check: is there an image nearby?
-                    # Captcha pages typically have an image with numbers to type
-                    img_element = await page.query_selector('img')
-                    if img_element:
-                        return True
-            
-            # Check for captcha-related text
+            # Check for captcha-related text FIRST (more reliable)
             content = await page.evaluate("() => document.body.innerText")
             content_lower = content.lower()
-            captcha_indicators = [
-                'type the code',
-                'enter the code',
-                'ketik kode',
-                'masukkan kode yang terlihat',
+            
+            # STRONG captcha indicators - if these are found, it's definitely captcha
+            strong_captcha_indicators = [
+                'type the code in the image',
+                'ketik kode yang ada di gambar',
                 'enter the text you see',
                 'type the characters',
-                'security check',
-                'verify you are human'
+                'enter the code from the image',
+                'masukkan kode yang terlihat di gambar'
             ]
             
-            if any(indicator in content_lower for indicator in captcha_indicators):
-                # But not if it's OTP confirmation code
-                if 'confirmation code' not in content_lower and 'kode konfirmasi' not in content_lower:
-                    return True
+            has_strong_indicator = any(indicator in content_lower for indicator in strong_captcha_indicators)
+            
+            if has_strong_indicator:
+                # Wait a moment for image to potentially load
+                await asyncio.sleep(1)
+                
+                # Confirm by checking for a visible image element
+                captcha_image_selectors = [
+                    'img[alt*="captcha" i]',
+                    'img[alt*="security" i]',
+                    'img[alt*="code" i]',
+                    'img[src*="captcha" i]',
+                    'img[src*="challenge" i]',
+                    'canvas',
+                    'form img'
+                ]
+                
+                for selector in captcha_image_selectors:
+                    try:
+                        img_element = await page.query_selector(selector)
+                        if img_element and await img_element.is_visible():
+                            bbox = await img_element.bounding_box()
+                            # Captcha images are typically medium sized
+                            if bbox and 40 < bbox['width'] < 500 and 15 < bbox['height'] < 250:
+                                print(f"   🔍 Captcha page confirmed (image found: {bbox['width']}x{bbox['height']})")
+                                return True
+                    except Exception:
+                        continue
+                
+                # If we have strong text indicator but no image yet, might still be loading
+                print("   ⚠️ Captcha text found but image not visible yet")
+                return True  # Return true anyway, image might load later
+            
+            # WEAK indicators - need image confirmation
+            weak_captcha_indicators = [
+                'security check',
+                'verify you are human',
+                'pemeriksaan keamanan',
+                'verifikasi bahwa anda manusia'
+            ]
+            
+            has_weak_indicator = any(indicator in content_lower for indicator in weak_captcha_indicators)
+            
+            if has_weak_indicator:
+                # But not if it's OTP confirmation code page
+                if 'confirmation code' in content_lower or 'kode konfirmasi' in content_lower:
+                    return False
+                
+                # Check for specific captcha elements
+                captcha_selectors = [
+                    'img[alt*="captcha" i]',
+                    'img[alt*="security" i]',
+                    '[data-testid="captcha"]',
+                    'div[class*="captcha"]'
+                ]
+                
+                for selector in captcha_selectors:
+                    element = await page.query_selector(selector)
+                    if element and await element.is_visible():
+                        return True
             
             return False
         except Exception as e:
@@ -11231,8 +11272,9 @@ class Account:
         try:
             print("   🔢 CAPTCHA DETECTED")
             
-            # Find the captcha image
-            captcha_image_data = await self._get_captcha_image(page)
+            # Wait for captcha image to appear before trying to detect it
+            print("   ⏳ Waiting for captcha image to load...")
+            captcha_image_data = await self._wait_for_captcha_image(page, timeout=15)
             captcha_code = None
             
             if captcha_image_data and HAVE_OCR:
@@ -11352,6 +11394,84 @@ class Account:
         except Exception as e:
             logger.error(f"Error getting captcha image: {e}")
             return None
+
+    async def _wait_for_captcha_image(self, page, timeout: int = 15) -> Optional[bytes]:
+        """Wait for captcha image to fully load before attempting to read it"""
+        print(f"   ⏳ Waiting up to {timeout}s for captcha image to load...")
+        
+        # Image selectors that could contain captcha
+        captcha_image_selectors = [
+            'img[alt*="captcha" i]',
+            'img[alt*="security" i]',
+            'img[alt*="code" i]',
+            'img[src*="captcha" i]',
+            'img[src*="security" i]',
+            'img[src*="challenge" i]',
+            'div[class*="captcha"] img',
+            'form img',
+            'canvas',
+        ]
+        
+        start_time = time.time()
+        check_interval = 0.5
+        last_screenshot = None
+        stable_count = 0
+        
+        while time.time() - start_time < timeout:
+            elapsed = time.time() - start_time
+            
+            # Try each selector
+            for selector in captcha_image_selectors:
+                try:
+                    element = await page.query_selector(selector)
+                    if element and await element.is_visible():
+                        # Check if it's the right size (not too small, not too large)
+                        bbox = await element.bounding_box()
+                        if bbox and 40 < bbox['width'] < 600 and 15 < bbox['height'] < 300:
+                            # Wait for image to fully load (check if naturalWidth > 0)
+                            try:
+                                if selector != 'canvas':
+                                    is_loaded = await element.evaluate("""
+                                        (el) => {
+                                            if (el.tagName === 'IMG') {
+                                                return el.complete && el.naturalWidth > 0;
+                                            }
+                                            return true;
+                                        }
+                                    """)
+                                    if not is_loaded:
+                                        print(f"   ⏳ Image found but still loading... ({elapsed:.1f}s)")
+                                        await asyncio.sleep(check_interval)
+                                        continue
+                            except Exception:
+                                pass
+                            
+                            # Take a screenshot of the element
+                            try:
+                                current_screenshot = await element.screenshot()
+                                if current_screenshot and len(current_screenshot) > 1000:  # Reasonable size check
+                                    # Check if image is stable (same as previous)
+                                    if last_screenshot and current_screenshot == last_screenshot:
+                                        stable_count += 1
+                                        if stable_count >= 2:  # Image stable for 2 consecutive checks
+                                            print(f"   ✅ Captcha image loaded and stable ({bbox['width']}x{bbox['height']})")
+                                            return current_screenshot
+                                    else:
+                                        stable_count = 0
+                                        last_screenshot = current_screenshot
+                                        print(f"   🔄 Captcha image updating... ({elapsed:.1f}s)")
+                            except Exception as e:
+                                print(f"   ⚠️ Failed to capture image: {e}")
+                                
+                except Exception:
+                    continue
+            
+            # Wait before next check
+            await asyncio.sleep(check_interval)
+        
+        # Timeout - try to get whatever image we can find
+        print("   ⚠️ Timeout waiting for stable captcha image, trying to capture anyway...")
+        return await self._get_captcha_image(page)
 
     async def _solve_captcha_with_ocr(self, image_data: bytes) -> Optional[str]:
         """Use OCR to read text/numbers from captcha image"""
