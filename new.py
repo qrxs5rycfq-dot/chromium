@@ -395,38 +395,47 @@ class AdvancedIPStealthSystem2025:
         return mnc_map.get(isp, "10")
     
     def _generate_device_fingerprint(self, isp: str, connection_type: str) -> Dict[str, Any]:
-        """Generate device fingerprint based on connection type"""
-        if connection_type == "mobile":
-            devices = [
-                {"brand": "Samsung", "model": "SM-S928B", "market_name": "Galaxy S24 Ultra", 
-                 "android_version": "14", "screen_resolution": "1440x3120", "dpi": 510},
-                {"brand": "Samsung", "model": "SM-S921B", "market_name": "Galaxy S24",
-                 "android_version": "14", "screen_resolution": "1080x2340", "dpi": 425},
-                {"brand": "Xiaomi", "model": "23116PN5BC", "market_name": "Xiaomi 14 Pro",
-                 "android_version": "14", "screen_resolution": "1440x3200", "dpi": 522},
-                {"brand": "OPPO", "model": "CPH2557", "market_name": "Reno 10 Pro+",
-                 "android_version": "14", "screen_resolution": "1240x2772", "dpi": 450},
-                {"brand": "vivo", "model": "V2303A", "market_name": "X100 Pro",
-                 "android_version": "14", "screen_resolution": "1260x2800", "dpi": 460}
-            ]
-        else:
-            devices = [
-                {"brand": "Samsung", "model": "SM-X916B", "market_name": "Galaxy Tab S9 Ultra",
-                 "android_version": "14", "screen_resolution": "2960x1848", "dpi": 239},
-                {"brand": "Lenovo", "model": "TB370FU", "market_name": "Tab P12 Pro",
-                 "android_version": "13", "screen_resolution": "2560x1600", "dpi": 280}
-            ]
+        """Generate device fingerprint - DESKTOP ONLY (laptop/Mac)"""
+        # Desktop/Laptop devices only - no mobile
+        devices = [
+            {"brand": "Apple", "model": "MacBookPro18,1", "market_name": "MacBook Pro 16-inch",
+             "os": "macOS", "os_version": "14.2", "screen_resolution": "1920x1080", "dpi": 112,
+             "platform": "MacIntel", "gpu_vendor": "Apple", "gpu_renderer": "Apple M1 Pro"},
+            {"brand": "Apple", "model": "MacBookPro18,3", "market_name": "MacBook Pro 14-inch",
+             "os": "macOS", "os_version": "14.1", "screen_resolution": "1512x982", "dpi": 112,
+             "platform": "MacIntel", "gpu_vendor": "Apple", "gpu_renderer": "Apple M1 Pro"},
+            {"brand": "Apple", "model": "MacBookAir10,1", "market_name": "MacBook Air M1",
+             "os": "macOS", "os_version": "13.6", "screen_resolution": "1440x900", "dpi": 112,
+             "platform": "MacIntel", "gpu_vendor": "Apple", "gpu_renderer": "Apple M1"},
+            {"brand": "Dell", "model": "XPS 15", "market_name": "Dell XPS 15",
+             "os": "Windows", "os_version": "10.0", "screen_resolution": "1920x1200", "dpi": 96,
+             "platform": "Win32", "gpu_vendor": "NVIDIA Corporation", "gpu_renderer": "NVIDIA GeForce RTX 3050 Ti Laptop GPU"},
+            {"brand": "HP", "model": "Spectre x360", "market_name": "HP Spectre x360",
+             "os": "Windows", "os_version": "11.0", "screen_resolution": "1920x1080", "dpi": 96,
+             "platform": "Win32", "gpu_vendor": "Intel Inc.", "gpu_renderer": "Intel Iris Xe Graphics"},
+            {"brand": "Lenovo", "model": "ThinkPad X1 Carbon", "market_name": "ThinkPad X1 Carbon Gen 11",
+             "os": "Windows", "os_version": "11.0", "screen_resolution": "2560x1440", "dpi": 96,
+             "platform": "Win32", "gpu_vendor": "Intel Inc.", "gpu_renderer": "Intel Iris Xe Graphics"},
+            {"brand": "ASUS", "model": "ZenBook 14", "market_name": "ASUS ZenBook 14",
+             "os": "Windows", "os_version": "10.0", "screen_resolution": "1920x1080", "dpi": 96,
+             "platform": "Win32", "gpu_vendor": "NVIDIA Corporation", "gpu_renderer": "NVIDIA GeForce MX450"}
+        ]
         
         device = random.choice(devices)
-        chrome_version = random.choice(["130.0.0.0", "131.0.0.0", "132.0.0.0", "133.0.0.0", "134.0.0.0", "135.0.0.0"])
+        chrome_version = random.choice(["120.0.0.0", "121.0.0.0", "122.0.0.0", "123.0.0.0", "124.0.0.0", "125.0.0.0"])
+        
+        # Generate appropriate user agent based on OS
+        if device["os"] == "macOS":
+            user_agent = f"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{chrome_version} Safari/537.36"
+        else:
+            win_version = "10.0" if device["os_version"] == "10.0" else "10.0"
+            user_agent = f"Mozilla/5.0 (Windows NT {win_version}; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{chrome_version} Safari/537.36"
         
         return {
             **device,
             "chrome_version": chrome_version,
-            "user_agent": f"Mozilla/5.0 (Linux; Android {device['android_version']}; {device['model']}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{chrome_version} Mobile Safari/537.36",
-            "build_id": f"UP1A.{random.randint(230000, 241000)}.{random.randint(1, 999):03d}",
-            "device_id": hashlib.md5(f"{device['model']}{time.time()}{random.random()}".encode()).hexdigest()[:16],
-            "android_id": ''.join(random.choices('0123456789abcdef', k=16))
+            "user_agent": user_agent,
+            "device_id": hashlib.md5(f"{device['model']}{time.time()}{random.random()}".encode()).hexdigest()[:16]
         }
     
     def _generate_ja3_fingerprint(self, connection_type: str) -> Tuple[str, str]:
@@ -494,6 +503,7 @@ class AdvancedIPStealthSystem2025:
         # Real browsers send very few headers by default
         
         user_agent = device_fp.get("user_agent", "")
+        platform = device_fp.get("platform", "Win32")
         
         # Only include essential headers that real browsers send
         # Avoid: DNT, Pragma, Cache-Control (these are optional and can look suspicious)
@@ -515,8 +525,13 @@ class AdvancedIPStealthSystem2025:
             chrome_version = chrome_match.group(1) if chrome_match else "120"
             
             headers["Sec-CH-UA"] = f'"Chromium";v="{chrome_version}", "Google Chrome";v="{chrome_version}", "Not-A.Brand";v="24"'
-            headers["Sec-CH-UA-Mobile"] = "?1" if connection_type == "mobile" else "?0"
-            headers["Sec-CH-UA-Platform"] = '"Android"' if "Android" in user_agent else '"Windows"'
+            headers["Sec-CH-UA-Mobile"] = "?0"  # Desktop only
+            
+            # Platform based on device
+            if platform == "MacIntel" or "Macintosh" in user_agent:
+                headers["Sec-CH-UA-Platform"] = '"macOS"'
+            else:
+                headers["Sec-CH-UA-Platform"] = '"Windows"'
         
         return headers
     
@@ -7232,24 +7247,24 @@ class Account:
         
         # Always print detailed identity info
         print("\n" + "=" * 60)
-        print("🔐 FRESH IDENTITY GENERATED")
+        print("🔐 FRESH IDENTITY GENERATED (DESKTOP)")
         print("=" * 60)
         print(f"   🔢 Rotation Count: #{self.ip_rotation_count}")
         print(f"   📍 IP Address: {ip_config.get('ip', 'N/A')}")
         print(f"   🏢 ISP: {ip_config.get('isp', 'Unknown')}")
         print(f"   📍 Location: {city}, {country}")
         print(f"   🌐 Timezone: {timezone}")
-        print(f"   🔗 Connection: {connection_type}")
+        print(f"   🔗 Connection: Desktop (WiFi)")
         print("-" * 60)
-        print(f"   📱 Brand: {device_fp.get('brand', 'Unknown')}")
-        print(f"   📱 Model: {device_fp.get('model', 'Unknown')}")
-        print(f"   📱 Market Name: {device_fp.get('market_name', 'Unknown')}")
-        print(f"   🤖 Android: {device_fp.get('android_version', 'Unknown')}")
+        print(f"   💻 Brand: {device_fp.get('brand', 'Unknown')}")
+        print(f"   💻 Model: {device_fp.get('market_name', 'Unknown')}")
+        print(f"   🖥️ OS: {device_fp.get('os', 'Unknown')} {device_fp.get('os_version', '')}")
+        print(f"   🎮 GPU: {device_fp.get('gpu_renderer', 'Unknown')}")
         print(f"   🌐 User Agent: {device_fp.get('user_agent', 'N/A')[:80]}...")
         print("-" * 60)
-        print(f"   🖥️ Screen: {webrtc_webgl_fp.get('screen', {}).get('width', 'N/A')}x{webrtc_webgl_fp.get('screen', {}).get('height', 'N/A')}")
-        print(f"   🎨 WebGL Vendor: {webrtc_webgl_fp.get('webgl', {}).get('vendor', 'N/A')[:40]}...")
-        print(f"   🎨 WebGL Renderer: {webrtc_webgl_fp.get('webgl', {}).get('renderer', 'N/A')[:40]}...")
+        print(f"   🖥️ Screen: {device_fp.get('screen_resolution', 'N/A')}")
+        print(f"   🎨 WebGL Vendor: {device_fp.get('gpu_vendor', 'N/A')[:40]}...")
+        print(f"   🎨 WebGL Renderer: {device_fp.get('gpu_renderer', 'N/A')[:40]}...")
         print(f"   🔑 JA3: {identity.get('ja3', 'N/A')[:50]}...")
         print("=" * 60 + "\n")
         
@@ -8199,15 +8214,15 @@ class Account:
             # IMPORTANT: Always use DESKTOP viewport to avoid mobile signup flow (phone verification)
             # Instagram's mobile view often redirects to /accounts/signup/phone/
             # Desktop viewport ensures we get the email signup form
-            viewport = {"width": 1920, "height": 1080}
+            screen_res = device_fp.get("screen_resolution", "1920x1080")
+            width, height = screen_res.split("x") if "x" in screen_res else ("1920", "1080")
+            viewport = {"width": int(width), "height": int(height)}
             
-            # Override connection type display for logging
-            print(f"[start_chromium] ℹ️ Note: Using DESKTOP viewport to avoid phone signup redirect")
-            print(f"[start_chromium] ℹ️ Identity connection type: {connection_type} (but viewport forced to desktop)")
-            
-            print("[start_chromium] 🔐 Starting Chromium with SYNCHRONIZED identity:")
+            print("[start_chromium] 🔐 Starting Chromium with DESKTOP identity:")
             print(f"  📍 IP: {ip_config.get('ip', 'N/A')} ({ip_config.get('isp', 'Unknown')})")
-            print(f"  📱 Device: {device_fp.get('market_name', device_fp.get('brand', 'Unknown'))}")
+            print(f"  💻 Device: {device_fp.get('market_name', device_fp.get('brand', 'Unknown'))}")
+            print(f"  🖥️ OS: {device_fp.get('os', 'Unknown')} {device_fp.get('os_version', '')}")
+            print(f"  🎮 GPU: {device_fp.get('gpu_renderer', 'Unknown')}")
             print(f"  🌐 User Agent: {user_agent[:60] if user_agent else 'Default'}...")
             print(f"  📺 Viewport: {viewport}")
             print(f"  🔗 Proxy: {self.bound_proxy[:50] if self.bound_proxy else 'None'}")
