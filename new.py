@@ -8730,23 +8730,59 @@ class Account:
                 print(f"   ✅ {field_type} input filled: {value}")
                 return True
             
-            # Handle combobox
+            # Handle combobox - use click + select option approach (combobox elements don't support .fill())
             role = await field.get_attribute('role')
-            if role == 'combobox':
+            if role == 'combobox' or role == 'listbox':
                 await field.click()
-                await asyncio.sleep(0.5)
+                await asyncio.sleep(0.8)
                 
-                # Type value
+                # Build search values based on field type
                 value_str = str(value) if field_type == 'year' else str(value).zfill(2)
-                await field.fill(value_str)
-                await asyncio.sleep(0.5)
+                search_values = [value_str, str(value)]
                 
-                # Press Enter atau click outside
-                await field.press('Enter')
-                await asyncio.sleep(0.5)
+                # For month, also try month names
+                if field_type == 'month':
+                    month_int = int(value)
+                    if 1 <= month_int <= 12:
+                        for months in MONTH_NAMES.values():
+                            search_values.append(months[month_int - 1])
                 
-                print(f"   ✅ {field_type} combobox filled: {value}")
-                return True
+                # Try to find and click the matching option
+                from playwright.async_api import Page
+                for search_val in search_values:
+                    option_selectors = [
+                        f'[role="option"]:has-text("{search_val}")',
+                        f'li:has-text("{search_val}")',
+                        f'div[role="option"]:has-text("{search_val}")',
+                        f'span:has-text("{search_val}")'
+                    ]
+                    
+                    for selector in option_selectors:
+                        try:
+                            # Use page to find option (combobox opens dropdown in page context)
+                            option = await field.page.query_selector(selector)
+                            if option and await option.is_visible():
+                                await option.click()
+                                print(f"   ✅ {field_type} combobox option clicked: {search_val}")
+                                await asyncio.sleep(0.3)
+                                return True
+                        except Exception:
+                            continue
+                
+                # Fallback: use keyboard navigation for combobox
+                try:
+                    await field.press('ArrowDown')
+                    await asyncio.sleep(0.2)
+                    # Type to filter options if combobox supports it
+                    await field.press('Enter')
+                    await asyncio.sleep(0.3)
+                    print(f"   ✅ {field_type} combobox selected via keyboard")
+                    return True
+                except Exception:
+                    pass
+                
+                print(f"   ⚠️ Combobox {field_type} selection failed, trying alternatives...")
+                return False
                 
         except Exception as e:
             print(f"   ❌ Failed to fill {field_type}: {e}")
@@ -9149,7 +9185,8 @@ class Account:
                 option_selectors = [
                     f'[role="option"]:has-text("{search_text}")',
                     f'li:has-text("{search_text}")',
-                    f'div[role="option"]:has-text("{search_text}")'
+                    f'div[role="option"]:has-text("{search_text}")',
+                    f'span:has-text("{search_text}")'
                 ]
                 
                 for selector in option_selectors:
@@ -9163,12 +9200,26 @@ class Account:
                     except Exception:
                         continue
             
-            # Fallback: type the value and press Enter
+            # Fallback: use keyboard navigation for combobox (combobox elements don't support .fill())
             try:
-                await field.fill(str(value))
+                # Try typing using keyboard (works for some combobox implementations)
+                value_str = str(value)
+                for char in value_str:
+                    await page.keyboard.press(char)
+                    await asyncio.sleep(0.1)
                 await asyncio.sleep(0.3)
                 await field.press('Enter')
-                print(f"   ✅ {field_type} filled via typing: {value}")
+                print(f"   ✅ {field_type} filled via keyboard typing: {value}")
+                return True
+            except Exception:
+                pass
+            
+            # Another fallback: use arrow keys to navigate
+            try:
+                await field.press('ArrowDown')
+                await asyncio.sleep(0.2)
+                await field.press('Enter')
+                print(f"   ✅ {field_type} selected via arrow keys")
                 return True
             except Exception:
                 pass
