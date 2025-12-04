@@ -2162,36 +2162,24 @@ class HeaderBuilder:
         
         return headers
 
-# Attach effective UA behavior
+# Attach effective UA behavior - DESKTOP ONLY
 def _generate_random_chrome_ua(self, platform: str = "windows") -> str:
-    major = _randint(115, 130)
-    build = _randint(3000, 9999)
-    patch = _randint(0, 399)
-    if platform == "android":
-        device = random.choice(["SM-G991B","Pixel 7","Pixel 6","SM-A536B","Mi 11"])
-        return f"Mozilla/5.0 (Linux; Android 13; {device}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{major}.0.{build}.{patch} Mobile Safari/537.36"
-    if platform == "iphone":
-        iosv = f"{_randint(15,17)}_{_randint(0,5)}"
-        return f"Mozilla/5.0 (iPhone; CPU iPhone OS {iosv} like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/{_randint(15,17)}.0 Mobile/15E148 Safari/604.1"
-    arch = random.choice(["Win64; x64","WOW64"])
+    """Generate random Chrome user agent - DESKTOP ONLY (no mobile/android/iphone)"""
+    major = _randint(118, 122)  # Stable Chrome versions for Instagram compatibility
+    build = _randint(5900, 6200)
+    patch = _randint(50, 150)
+    # ALWAYS return desktop user agent - ignore android/iphone platform requests
+    if platform == "macos" or random.random() > 0.6:
+        return f"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{major}.0.{build}.{patch} Safari/537.36"
+    arch = random.choice(["Win64; x64"])  # Always 64-bit
     return f"Mozilla/5.0 (Windows NT 10.0; {arch}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{major}.0.{build}.{patch} Safari/537.36"
 
 def _effective_user_agent(self, force_mode: Optional[str] = None) -> str:
+    """Get effective user agent - ALWAYS DESKTOP"""
     if getattr(self, "user_agent", None):
         return self.user_agent
-    mode = (force_mode or getattr(self, "ua_mode", None) or "A").upper()
-    if mode == "A":
-        return COMMON_UAS[0]
-    if mode == "B":
-        return "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36"
-    if mode == "C":
-        return "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"
-    if mode == "D":
-        return random.choice(COMMON_UAS + [_generate_random_chrome_ua(self, "windows"), _generate_random_chrome_ua(self, "android"), _generate_random_chrome_ua(self, "iphone")])
-    if mode == "E":
-        p = random.choice(["windows","android","iphone"])
-        return _generate_random_chrome_ua(self, p)
-    return COMMON_UAS[0]
+    # Always return desktop user agent regardless of mode
+    return _generate_random_chrome_ua(self, "windows")
 
 setattr(HeaderBuilder, "_parent", None)
 setattr(HeaderBuilder, "_generate_random_chrome_ua", _generate_random_chrome_ua)
@@ -2515,10 +2503,10 @@ class ChromiumManager:
             ip_config = IP_STEALTH_SYSTEM.get_fresh_ip_config()
             device_fp = ip_config.get("device_fingerprint", {})
             
-            # Get WebRTC/WebGL fingerprint
-            brand = device_fp.get("brand", "Samsung").lower()
-            device_type = "android"
-            connection_type = ip_config.get("connection_type", "mobile")
+            # Get WebRTC/WebGL fingerprint - DESKTOP ONLY
+            brand = device_fp.get("brand", "Dell").lower()
+            device_type = "desktop"  # ALWAYS desktop, never android
+            connection_type = "wifi"  # ALWAYS wifi, never mobile
             webrtc_webgl_fp = WEBRTC_WEBGL_SPOOFER.get_complete_fingerprint(device_type, brand, connection_type)
             
             # Add comprehensive stealth injection script
@@ -3540,10 +3528,10 @@ class UltimateChromiumManager:
             ip_config = IP_STEALTH_SYSTEM.get_fresh_ip_config()
             device_fp = ip_config.get("device_fingerprint", {})
             
-            # Get WebRTC/WebGL fingerprint
-            brand = device_fp.get("brand", "Samsung").lower()
-            device_type = "android"  # or ios based on brand
-            connection_type = ip_config.get("connection_type", "mobile")
+            # Get WebRTC/WebGL fingerprint - DESKTOP ONLY
+            brand = device_fp.get("brand", "Dell").lower()
+            device_type = "desktop"  # ALWAYS desktop, never android/ios
+            connection_type = "wifi"  # ALWAYS wifi, never mobile
             webrtc_webgl_fp = WEBRTC_WEBGL_SPOOFER.get_complete_fingerprint(device_type, brand, connection_type)
             
             # Add comprehensive stealth injection script
@@ -3928,14 +3916,16 @@ class InstagramHeaderAutoSync:
         }
 
 class HeaderBuilderV5:
+    # DESKTOP ONLY device profiles - no mobile devices
     DEVICE_PROFILES = {
         "macbook": {"os": "mac", "label": "MacBook Pro", "viewport": (1440, 900), "accept_lang": "en-US,en;q=0.9"},
-        "pixel7":  {"os": "android", "label": "Pixel 7", "viewport": (412, 915), "accept_lang": "en-US,en;q=0.9"},
-        "galaxy":  {"os": "android", "label": "SM-S918B", "viewport": (412, 915), "accept_lang": "id-ID,id;q=0.9,en-US;q=0.8"},
-        "windows": {"os": "windows", "label": "Surface", "viewport": (1366, 768), "accept_lang": "en-US,en;q=0.9"},
+        "windows": {"os": "windows", "label": "Surface", "viewport": (1920, 1080), "accept_lang": "en-US,en;q=0.9"},
+        "dell": {"os": "windows", "label": "Dell XPS 15", "viewport": (1920, 1200), "accept_lang": "en-US,en;q=0.9"},
+        "thinkpad": {"os": "windows", "label": "ThinkPad X1", "viewport": (2560, 1440), "accept_lang": "en-US,en;q=0.9"},
     }
     
     def __init__(self, device: str = "macbook", stable_session: bool = True, seed: Optional[int] = None):
+        # Force desktop device - never use mobile
         dev = device if device in self.DEVICE_PROFILES else "macbook"
         profile = self.DEVICE_PROFILES[dev]
         self.device_profile = profile
@@ -4233,37 +4223,8 @@ class AdvancedFingerprintManager:
         self.load_realistic_fingerprints()
 
     def load_realistic_fingerprints(self):
+        # DESKTOP ONLY fingerprints - no mobile/iPhone/Android
         self.fingerprint_pool = [
-            {
-                "type": "mobile",
-                "user_agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_1_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Mobile/15E148 Safari/604.1",
-                "screen": {"width": 390, "height": 844, "availWidth": 390, "availHeight": 844, "devicePixelRatio": 3.0},
-                "device_memory": 4,
-                "hardware_concurrency": 6,
-                "webgl_vendor": "Apple Inc.",
-                "webgl_renderer": "Apple GPU",
-                "platform": "iPhone",
-                "fonts": ["SF-Pro", "Helvetica", "San Francisco"],
-                "timezone": "America/Los_Angeles",
-                "locale": "en-US",
-                "languages": ["en-US", "en"],
-                "accept_language": "en-US,en;q=0.9"
-            },
-            {
-                "type": "mobile",
-                "user_agent": "Mozilla/5.0 (Linux; Android 13; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Mobile Safari/537.36",
-                "screen": {"width": 412, "height": 915, "availWidth": 412, "availHeight": 870, "devicePixelRatio": 2.6},
-                "device_memory": 12,
-                "hardware_concurrency": 8,
-                "webgl_vendor": "Google Inc.",
-                "webgl_renderer": "ANGLE (Qualcomm, Adreno (TM) 740, OpenGL ES 3.2)",
-                "platform": "Linux armv8l",
-                "fonts": ["Roboto", "Noto Sans", "Arial"],
-                "timezone": "Europe/London",
-                "locale": "en-GB",
-                "languages": ["en-GB", "en"],
-                "accept_language": "en-GB,en;q=0.9"
-            },
             {
                 "type": "desktop",
                 "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36",
@@ -4293,6 +4254,36 @@ class AdvancedFingerprintManager:
                 "locale": "fr-FR",
                 "languages": ["fr-FR", "fr", "en-US"],
                 "accept_language": "fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7"
+            },
+            {
+                "type": "desktop",
+                "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "screen": {"width": 1920, "height": 1200, "availWidth": 1920, "availHeight": 1160, "devicePixelRatio": 1.0},
+                "device_memory": 16,
+                "hardware_concurrency": 8,
+                "webgl_vendor": "NVIDIA Corporation",
+                "webgl_renderer": "ANGLE (NVIDIA, NVIDIA GeForce RTX 3060, OpenGL 4.6)",
+                "platform": "Win32",
+                "fonts": ["Arial", "Segoe UI", "Times New Roman", "Tahoma"],
+                "timezone": "Asia/Jakarta",
+                "locale": "id-ID",
+                "languages": ["id-ID", "id", "en-US"],
+                "accept_language": "id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7"
+            },
+            {
+                "type": "desktop",
+                "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+                "screen": {"width": 2560, "height": 1600, "availWidth": 2560, "availHeight": 1560, "devicePixelRatio": 2.0},
+                "device_memory": 16,
+                "hardware_concurrency": 10,
+                "webgl_vendor": "Apple Inc.",
+                "webgl_renderer": "ANGLE (Apple, Apple M1 Pro, OpenGL 4.1)",
+                "platform": "MacIntel",
+                "fonts": ["Helvetica", "Arial", "SF Pro", "Times New Roman"],
+                "timezone": "Asia/Jakarta",
+                "locale": "id-ID",
+                "languages": ["id-ID", "id", "en-US"],
+                "accept_language": "id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7"
             }
         ]
 
@@ -5752,9 +5743,9 @@ HEADERS = {
     "Host": "10minutemail.net",
     "accept": "application/json, text/javascript, */*; q=0.01",
     "x-requested-with": "XMLHttpRequest",
-    "sec-ch-ua-mobile": "?1",
-    "user-agent": "Mozilla/5.0 (Linux; Android 13; SM-A135F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/109.0.0.0 Mobile Safari/537.36",
-    "referer": "https://10minutemail.net/m/?lang=id",
+    "sec-ch-ua-mobile": "?0",
+    "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+    "referer": "https://10minutemail.net/?lang=id",
     "accept-encoding": "identity",
     "accept-language": "id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7",
 }
