@@ -11040,6 +11040,15 @@ class Account:
                 if await self._is_human_confirmation_suspend_page(page):
                     print("   👤 Human confirmation page detected")
                     
+                    # FIRST: Check if there's a captcha image that needs to be solved
+                    captcha_solved = await self._handle_human_verification_captcha(page)
+                    
+                    if captcha_solved:
+                        print("   ✅ Captcha solved, waiting for page update...")
+                        await asyncio.sleep(2)
+                        continue
+                    
+                    # If no captcha or captcha failed, try clicking Continue button
                     # Debug: List all buttons on the page
                     print("   🔍 Searching for buttons on page...")
                     all_buttons = await page.query_selector_all('button, [role="button"], a, div[tabindex="0"]')
@@ -11756,6 +11765,116 @@ class Account:
             return False
         except Exception as e:
             logger.error(f"Error checking human confirmation page: {e}")
+            return False
+
+    async def _handle_human_verification_captcha(self, page) -> bool:
+        """Handle captcha on human verification page - read image, fill code, submit"""
+        try:
+            print("   🔍 Checking for captcha image on this page...")
+            
+            # First, check if there's an input field for captcha code
+            captcha_input = await self._find_captcha_input(page)
+            if not captcha_input:
+                print("   ℹ️ No captcha input field found - may not be a captcha page")
+                return False
+            
+            # Check if input already has a value
+            current_value = await captcha_input.input_value()
+            if current_value and len(current_value) >= 4:
+                print(f"   ℹ️ Captcha input already has value: {current_value}")
+                # Try to submit
+                clicked = await self._click_continue_button(page)
+                if clicked:
+                    print("   ✅ Clicked submit after existing captcha value")
+                    return True
+                return False
+            
+            print("   🔍 Looking for captcha image...")
+            
+            # Wait for captcha image to load
+            captcha_image_data = await self._wait_for_captcha_image(page, timeout=10)
+            
+            if not captcha_image_data:
+                print("   ⚠️ No captcha image found")
+                return False
+            
+            print("   ✅ Captcha image captured!")
+            
+            # Save screenshot for debugging
+            try:
+                timestamp = int(time.time())
+                screenshot_path = f"./debug_captcha_{timestamp}.png"
+                await page.screenshot(path=screenshot_path, timeout=3000)
+                print(f"   📸 Captcha page screenshot: {screenshot_path}")
+            except Exception:
+                pass
+            
+            captcha_code = None
+            
+            # Try OCR to read the captcha
+            if HAVE_OCR:
+                print("   🤖 Attempting OCR to read captcha...")
+                captcha_code = await self._solve_captcha_with_ocr(captcha_image_data)
+                
+                if captcha_code:
+                    print(f"   ✅ OCR detected code: {captcha_code}")
+                else:
+                    print("   ⚠️ OCR could not read captcha clearly")
+            else:
+                print("   ⚠️ OCR not available (pytesseract not installed)")
+            
+            # If OCR failed, ask for manual input
+            if not captcha_code:
+                print("   📷 Manual input required for captcha")
+                try:
+                    captcha_code = input("   ❓ Enter the captcha code from the image: ").strip()
+                except Exception:
+                    print("   ⚠️ Cannot get manual input")
+                    return False
+                
+                if not captcha_code:
+                    print("   ⏭️ Captcha skipped by user")
+                    return False
+            
+            # Clear and fill the captcha input
+            print(f"   ⌨️ Entering captcha code: {captcha_code}")
+            await captcha_input.click()
+            await asyncio.sleep(0.3)
+            
+            # Clear any existing value
+            await captcha_input.fill("")
+            await asyncio.sleep(0.2)
+            
+            # Type the captcha code
+            await captcha_input.type(captcha_code, delay=50)
+            await asyncio.sleep(0.5)
+            
+            print(f"   ✅ Captcha code entered: {captcha_code}")
+            
+            # Now click the Continue/Submit button
+            await asyncio.sleep(0.5)
+            clicked = await self._click_continue_button(page)
+            
+            if clicked:
+                print("   ✅ Clicked submit button after captcha")
+            else:
+                # Try pressing Enter
+                print("   ⌨️ Pressing Enter to submit captcha...")
+                await page.keyboard.press('Enter')
+            
+            # Wait for page to update
+            await asyncio.sleep(2)
+            await self._wait_for_loading_complete(page, timeout=10)
+            
+            # Check if captcha was wrong (error message or still on same page with input)
+            if await self._is_captcha_error(page):
+                print("   ❌ Captcha was incorrect")
+                return False
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error handling human verification captcha: {e}")
             return False
 
     async def _click_continue_button(self, page) -> bool:
