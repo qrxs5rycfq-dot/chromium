@@ -138,6 +138,482 @@ MAX_ERROR_LENGTH = 100
 # Threshold for using slow typing (characters)
 SLOW_TYPING_THRESHOLD = 30
 
+# ============================================================================
+# DYNAMIC FINGERPRINT GENERATOR - Fully Synchronized
+# All components (UA, headers, device info, WebGL, canvas) are consistent
+# ============================================================================
+class DynamicFingerprintGenerator:
+    """
+    Generate fully synchronized, realistic fingerprints that match across:
+    - User Agent
+    - HTTP Headers (Sec-CH-UA, Accept-Language, etc.)
+    - Navigator properties
+    - Screen/viewport
+    - WebGL renderer
+    - Canvas fingerprint seed
+    - Audio context
+    - Timezone
+    """
+    
+    # Real device profiles with synchronized data
+    DEVICE_PROFILES = [
+        # Windows Chrome profiles
+        {
+            'os': 'Windows',
+            'os_version': '10.0',
+            'browser': 'Chrome',
+            'browser_versions': ['120', '121', '122', '123', '124'],
+            'platform': 'Win32',
+            'vendor': 'Google Inc.',
+            'renderer_base': 'ANGLE (NVIDIA, NVIDIA GeForce',
+            'gpu_models': ['GTX 1650', 'GTX 1660', 'RTX 2060', 'RTX 3060', 'RTX 3070', 'RTX 4060'],
+            'screens': [
+                {'width': 1920, 'height': 1080, 'depth': 24, 'dpr': 1},
+                {'width': 2560, 'height': 1440, 'depth': 24, 'dpr': 1},
+                {'width': 1366, 'height': 768, 'depth': 24, 'dpr': 1},
+                {'width': 1536, 'height': 864, 'depth': 24, 'dpr': 1.25},
+            ],
+            'memory': [8, 16, 32],
+            'cores': [4, 6, 8, 12, 16],
+            'languages': ['en-US', 'en'],
+        },
+        {
+            'os': 'Windows',
+            'os_version': '10.0',
+            'browser': 'Chrome',
+            'browser_versions': ['120', '121', '122', '123', '124'],
+            'platform': 'Win32',
+            'vendor': 'Google Inc.',
+            'renderer_base': 'ANGLE (AMD, AMD Radeon',
+            'gpu_models': ['RX 580', 'RX 5600 XT', 'RX 6600', 'RX 6700 XT', 'RX 7600'],
+            'screens': [
+                {'width': 1920, 'height': 1080, 'depth': 24, 'dpr': 1},
+                {'width': 2560, 'height': 1440, 'depth': 24, 'dpr': 1},
+            ],
+            'memory': [8, 16],
+            'cores': [6, 8, 12],
+            'languages': ['en-US', 'en'],
+        },
+        # Mac Chrome profiles
+        {
+            'os': 'macOS',
+            'os_version': '10_15_7',
+            'browser': 'Chrome',
+            'browser_versions': ['120', '121', '122', '123', '124'],
+            'platform': 'MacIntel',
+            'vendor': 'Google Inc.',
+            'renderer_base': 'ANGLE (Apple, Apple M',
+            'gpu_models': ['1', '1 Pro', '2', '2 Pro', '3', '3 Pro'],
+            'screens': [
+                {'width': 1440, 'height': 900, 'depth': 30, 'dpr': 2},
+                {'width': 1680, 'height': 1050, 'depth': 30, 'dpr': 2},
+                {'width': 2560, 'height': 1600, 'depth': 30, 'dpr': 2},
+            ],
+            'memory': [8, 16, 32],
+            'cores': [8, 10, 12],
+            'languages': ['en-US', 'en'],
+        },
+        # Mac Safari profiles
+        {
+            'os': 'macOS',
+            'os_version': '10_15_7',
+            'browser': 'Safari',
+            'browser_versions': ['17.1', '17.2', '17.3', '17.4'],
+            'platform': 'MacIntel',
+            'vendor': 'Apple Computer, Inc.',
+            'renderer_base': 'Apple GPU',
+            'gpu_models': [''],
+            'screens': [
+                {'width': 1440, 'height': 900, 'depth': 30, 'dpr': 2},
+                {'width': 1680, 'height': 1050, 'depth': 30, 'dpr': 2},
+            ],
+            'memory': [8, 16],
+            'cores': [8, 10],
+            'languages': ['en-US', 'en'],
+        },
+        # Windows Firefox profiles
+        {
+            'os': 'Windows',
+            'os_version': '10.0',
+            'browser': 'Firefox',
+            'browser_versions': ['121', '122', '123', '124', '125'],
+            'platform': 'Win32',
+            'vendor': '',
+            'renderer_base': 'NVIDIA GeForce',
+            'gpu_models': ['GTX 1650', 'GTX 1660', 'RTX 2060', 'RTX 3060'],
+            'screens': [
+                {'width': 1920, 'height': 1080, 'depth': 24, 'dpr': 1},
+                {'width': 1366, 'height': 768, 'depth': 24, 'dpr': 1},
+            ],
+            'memory': [8, 16],
+            'cores': [4, 6, 8],
+            'languages': ['en-US', 'en'],
+        },
+    ]
+    
+    TIMEZONES = {
+        'America/New_York': {'offset': -5, 'locale': 'en-US'},
+        'America/Chicago': {'offset': -6, 'locale': 'en-US'},
+        'America/Denver': {'offset': -7, 'locale': 'en-US'},
+        'America/Los_Angeles': {'offset': -8, 'locale': 'en-US'},
+        'Europe/London': {'offset': 0, 'locale': 'en-GB'},
+        'Europe/Paris': {'offset': 1, 'locale': 'fr-FR'},
+        'Europe/Berlin': {'offset': 1, 'locale': 'de-DE'},
+        'Asia/Tokyo': {'offset': 9, 'locale': 'ja-JP'},
+        'Asia/Singapore': {'offset': 8, 'locale': 'en-SG'},
+        'Australia/Sydney': {'offset': 11, 'locale': 'en-AU'},
+    }
+    
+    def __init__(self):
+        self.current_fingerprint = None
+        self.fingerprint_created_at = 0
+        self.session_id = str(uuid.uuid4())
+    
+    def generate(self, force_new: bool = False) -> Dict[str, Any]:
+        """Generate a complete synchronized fingerprint"""
+        # Rotate fingerprint every 30-60 minutes or if forced
+        if (not force_new and self.current_fingerprint and 
+            time.time() - self.fingerprint_created_at < random.randint(1800, 3600)):
+            return self.current_fingerprint
+        
+        # Select random device profile
+        profile = random.choice(self.DEVICE_PROFILES)
+        browser_version = random.choice(profile['browser_versions'])
+        screen = random.choice(profile['screens'])
+        gpu_model = random.choice(profile['gpu_models'])
+        memory = random.choice(profile['memory'])
+        cores = random.choice(profile['cores'])
+        
+        # Select timezone
+        tz_name = random.choice(list(self.TIMEZONES.keys()))
+        tz_info = self.TIMEZONES[tz_name]
+        
+        # Generate synchronized user agent
+        if profile['browser'] == 'Chrome':
+            if profile['os'] == 'Windows':
+                user_agent = f"Mozilla/5.0 (Windows NT {profile['os_version']}; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{browser_version}.0.0.0 Safari/537.36"
+            else:
+                user_agent = f"Mozilla/5.0 (Macintosh; Intel Mac OS X {profile['os_version']}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{browser_version}.0.0.0 Safari/537.36"
+        elif profile['browser'] == 'Firefox':
+            user_agent = f"Mozilla/5.0 (Windows NT {profile['os_version']}; Win64; x64; rv:{browser_version}.0) Gecko/20100101 Firefox/{browser_version}.0"
+        else:  # Safari
+            user_agent = f"Mozilla/5.0 (Macintosh; Intel Mac OS X {profile['os_version']}) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/{browser_version} Safari/605.1.15"
+        
+        # Generate WebGL info
+        if profile['renderer_base'].startswith('ANGLE'):
+            webgl_vendor = 'Google Inc. (NVIDIA)' if 'NVIDIA' in profile['renderer_base'] else 'Google Inc. (AMD)'
+            webgl_renderer = f"{profile['renderer_base']} {gpu_model}, Direct3D11)"
+        elif profile['renderer_base'] == 'Apple GPU':
+            webgl_vendor = 'Apple Inc.'
+            webgl_renderer = 'Apple GPU'
+        else:
+            webgl_vendor = 'Google Inc.'
+            webgl_renderer = f"{profile['renderer_base']} {gpu_model}"
+        
+        # Generate canvas noise seed (consistent per session)
+        canvas_seed = hashlib.md5(f"{self.session_id}{user_agent}".encode()).hexdigest()[:8]
+        audio_seed = hashlib.md5(f"{self.session_id}audio{user_agent}".encode()).hexdigest()[:8]
+        
+        # Generate synchronized headers
+        if profile['browser'] == 'Chrome':
+            sec_ch_ua = f'"Chromium";v="{browser_version}", "Google Chrome";v="{browser_version}", "Not-A.Brand";v="99"'
+        elif profile['browser'] == 'Firefox':
+            sec_ch_ua = None  # Firefox doesn't send Sec-CH-UA
+        else:
+            sec_ch_ua = None  # Safari doesn't send Sec-CH-UA
+        
+        sec_ch_ua_platform = f'"{profile["os"]}"' if profile['browser'] == 'Chrome' else None
+        
+        fingerprint = {
+            # Basic info
+            'session_id': self.session_id,
+            'created_at': time.time(),
+            
+            # Device profile
+            'os': profile['os'],
+            'os_version': profile['os_version'],
+            'browser': profile['browser'],
+            'browser_version': browser_version,
+            'platform': profile['platform'],
+            
+            # User Agent
+            'user_agent': user_agent,
+            
+            # Screen
+            'screen_width': screen['width'],
+            'screen_height': screen['height'],
+            'screen_depth': screen['depth'],
+            'device_pixel_ratio': screen['dpr'],
+            'viewport_width': screen['width'],
+            'viewport_height': screen['height'] - random.randint(80, 150),  # Account for browser chrome
+            
+            # Hardware
+            'hardware_concurrency': cores,
+            'device_memory': memory,
+            
+            # WebGL
+            'webgl_vendor': webgl_vendor,
+            'webgl_renderer': webgl_renderer,
+            
+            # Canvas/Audio seeds for consistent noise
+            'canvas_seed': canvas_seed,
+            'audio_seed': audio_seed,
+            
+            # Timezone
+            'timezone': tz_name,
+            'timezone_offset': tz_info['offset'] * -60,  # JS uses inverted minutes
+            
+            # Language
+            'languages': profile['languages'],
+            'locale': tz_info['locale'],
+            
+            # HTTP Headers (synchronized with UA)
+            'headers': {
+                'User-Agent': user_agent,
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+                'Accept-Language': ','.join(profile['languages']) + ';q=0.9',
+                'Accept-Encoding': 'gzip, deflate, br',
+                'Cache-Control': 'max-age=0',
+                'Sec-Fetch-Dest': 'document',
+                'Sec-Fetch-Mode': 'navigate',
+                'Sec-Fetch-Site': 'none',
+                'Sec-Fetch-User': '?1',
+                'Upgrade-Insecure-Requests': '1',
+            },
+            
+            # Connection info
+            'connection_type': random.choice(['wifi', 'ethernet']),
+            'effective_type': '4g',
+            'downlink': round(random.uniform(5, 50), 1),
+            'rtt': random.randint(25, 100),
+        }
+        
+        # Add Chrome-specific headers
+        if profile['browser'] == 'Chrome':
+            fingerprint['headers']['Sec-CH-UA'] = sec_ch_ua
+            fingerprint['headers']['Sec-CH-UA-Mobile'] = '?0'
+            fingerprint['headers']['Sec-CH-UA-Platform'] = sec_ch_ua_platform
+        
+        self.current_fingerprint = fingerprint
+        self.fingerprint_created_at = time.time()
+        
+        return fingerprint
+    
+    def get_stealth_script(self, fingerprint: Dict[str, Any]) -> str:
+        """Generate stealth script synchronized with fingerprint"""
+        return f"""
+        // === SYNCHRONIZED STEALTH MODE ===
+        // All values match the fingerprint and headers
+        
+        const FINGERPRINT = {{
+            platform: '{fingerprint['platform']}',
+            languages: {json.dumps(fingerprint['languages'])},
+            hardwareConcurrency: {fingerprint['hardware_concurrency']},
+            deviceMemory: {fingerprint['device_memory']},
+            screenWidth: {fingerprint['screen_width']},
+            screenHeight: {fingerprint['screen_height']},
+            screenDepth: {fingerprint['screen_depth']},
+            devicePixelRatio: {fingerprint['device_pixel_ratio']},
+            timezoneOffset: {fingerprint['timezone_offset']},
+            webglVendor: '{fingerprint['webgl_vendor']}',
+            webglRenderer: '{fingerprint['webgl_renderer']}',
+            canvasSeed: '{fingerprint['canvas_seed']}',
+            audioSeed: '{fingerprint['audio_seed']}',
+            connectionType: '{fingerprint['connection_type']}',
+            effectiveType: '{fingerprint['effective_type']}',
+            downlink: {fingerprint['downlink']},
+            rtt: {fingerprint['rtt']},
+        }};
+        
+        // === WEBDRIVER REMOVAL ===
+        Object.defineProperty(navigator, 'webdriver', {{
+            get: () => undefined,
+            configurable: true
+        }});
+        delete navigator.__proto__.webdriver;
+        
+        // === NAVIGATOR PROPERTIES (Synchronized) ===
+        Object.defineProperty(navigator, 'platform', {{
+            get: () => FINGERPRINT.platform,
+            configurable: true
+        }});
+        
+        Object.defineProperty(navigator, 'languages', {{
+            get: () => FINGERPRINT.languages,
+            configurable: true
+        }});
+        
+        Object.defineProperty(navigator, 'language', {{
+            get: () => FINGERPRINT.languages[0],
+            configurable: true
+        }});
+        
+        Object.defineProperty(navigator, 'hardwareConcurrency', {{
+            get: () => FINGERPRINT.hardwareConcurrency,
+            configurable: true
+        }});
+        
+        Object.defineProperty(navigator, 'deviceMemory', {{
+            get: () => FINGERPRINT.deviceMemory,
+            configurable: true
+        }});
+        
+        // === SCREEN PROPERTIES (Synchronized) ===
+        Object.defineProperty(screen, 'width', {{
+            get: () => FINGERPRINT.screenWidth,
+            configurable: true
+        }});
+        
+        Object.defineProperty(screen, 'height', {{
+            get: () => FINGERPRINT.screenHeight,
+            configurable: true
+        }});
+        
+        Object.defineProperty(screen, 'availWidth', {{
+            get: () => FINGERPRINT.screenWidth,
+            configurable: true
+        }});
+        
+        Object.defineProperty(screen, 'availHeight', {{
+            get: () => FINGERPRINT.screenHeight - 40,
+            configurable: true
+        }});
+        
+        Object.defineProperty(screen, 'colorDepth', {{
+            get: () => FINGERPRINT.screenDepth,
+            configurable: true
+        }});
+        
+        Object.defineProperty(screen, 'pixelDepth', {{
+            get: () => FINGERPRINT.screenDepth,
+            configurable: true
+        }});
+        
+        Object.defineProperty(window, 'devicePixelRatio', {{
+            get: () => FINGERPRINT.devicePixelRatio,
+            configurable: true
+        }});
+        
+        // === TIMEZONE (Synchronized) ===
+        Date.prototype.getTimezoneOffset = function() {{
+            return FINGERPRINT.timezoneOffset;
+        }};
+        
+        // === WEBGL (Synchronized with hardware) ===
+        if (typeof WebGLRenderingContext !== 'undefined') {{
+            const getParameter = WebGLRenderingContext.prototype.getParameter;
+            WebGLRenderingContext.prototype.getParameter = function(parameter) {{
+                if (parameter === 37445) return FINGERPRINT.webglVendor;
+                if (parameter === 37446) return FINGERPRINT.webglRenderer;
+                return getParameter.call(this, parameter);
+            }};
+        }}
+        
+        if (typeof WebGL2RenderingContext !== 'undefined') {{
+            const getParameter2 = WebGL2RenderingContext.prototype.getParameter;
+            WebGL2RenderingContext.prototype.getParameter = function(parameter) {{
+                if (parameter === 37445) return FINGERPRINT.webglVendor;
+                if (parameter === 37446) return FINGERPRINT.webglRenderer;
+                return getParameter2.call(this, parameter);
+            }};
+        }}
+        
+        // === CANVAS FINGERPRINT (Seeded noise for consistency) ===
+        const seedRandom = (seed) => {{
+            let x = Math.sin(parseInt(seed, 16)) * 10000;
+            return x - Math.floor(x);
+        }};
+        
+        const canvasNoise = seedRandom(FINGERPRINT.canvasSeed);
+        
+        const originalToDataURL = HTMLCanvasElement.prototype.toDataURL;
+        HTMLCanvasElement.prototype.toDataURL = function(type, quality) {{
+            const ctx = this.getContext('2d');
+            if (ctx) {{
+                const imageData = ctx.getImageData(0, 0, this.width, this.height);
+                for (let i = 0; i < imageData.data.length; i += 100) {{
+                    imageData.data[i] = imageData.data[i] + Math.floor((canvasNoise - 0.5) * 4);
+                }}
+                ctx.putImageData(imageData, 0, 0);
+            }}
+            return originalToDataURL.call(this, type, quality);
+        }};
+        
+        // === AUDIO FINGERPRINT (Seeded noise) ===
+        if (typeof AudioBuffer !== 'undefined') {{
+            const audioNoise = seedRandom(FINGERPRINT.audioSeed);
+            const originalGetChannelData = AudioBuffer.prototype.getChannelData;
+            AudioBuffer.prototype.getChannelData = function() {{
+                const data = originalGetChannelData.apply(this, arguments);
+                for (let i = 0; i < data.length; i += 100) {{
+                    data[i] += (audioNoise - 0.5) * 0.0001;
+                }}
+                return data;
+            }};
+        }}
+        
+        // === NETWORK INFO (Synchronized) ===
+        Object.defineProperty(navigator, 'connection', {{
+            get: () => ({{
+                type: FINGERPRINT.connectionType,
+                effectiveType: FINGERPRINT.effectiveType,
+                downlink: FINGERPRINT.downlink,
+                rtt: FINGERPRINT.rtt,
+                saveData: false,
+                onchange: null,
+                addEventListener: () => {{}},
+                removeEventListener: () => {{}}
+            }}),
+            configurable: true
+        }});
+        
+        // === PERMISSIONS (Consistent behavior) ===
+        const originalQuery = window.navigator.permissions.query;
+        window.navigator.permissions.query = (parameters) => {{
+            if (parameters.name === 'notifications') return Promise.resolve({{ state: 'denied' }});
+            if (parameters.name === 'geolocation') return Promise.resolve({{ state: 'prompt' }});
+            return originalQuery(parameters);
+        }};
+        
+        // === PLUGINS (Realistic) ===
+        Object.defineProperty(navigator, 'plugins', {{
+            get: () => {{
+                const plugins = [
+                    {{ name: 'Chrome PDF Plugin', filename: 'internal-pdf-viewer', description: 'Portable Document Format' }},
+                    {{ name: 'Chrome PDF Viewer', filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai', description: '' }},
+                    {{ name: 'Native Client', filename: 'internal-nacl-plugin', description: '' }}
+                ];
+                plugins.length = 3;
+                return plugins;
+            }},
+            configurable: true
+        }});
+        
+        // === CHROME OBJECT ===
+        window.chrome = {{
+            runtime: {{
+                id: undefined,
+                connect: () => {{}},
+                sendMessage: () => {{}},
+                onMessage: {{ addListener: () => {{}} }}
+            }},
+            loadTimes: () => ({{}}),
+            csi: () => ({{}})
+        }};
+        
+        console.log('🛡️ Synchronized Stealth Mode Active');
+        """
+    
+    def rotate(self):
+        """Force fingerprint rotation"""
+        self.session_id = str(uuid.uuid4())
+        self.current_fingerprint = None
+        self.fingerprint_created_at = 0
+        return self.generate(force_new=True)
+
+# Global fingerprint generator instance
+FINGERPRINT_GENERATOR = DynamicFingerprintGenerator()
+
 class AdvancedSecurityManager:
     """Enhanced security manager tanpa menghilangkan fitur existing"""
     
@@ -145,6 +621,7 @@ class AdvancedSecurityManager:
         self.encryption_key = self._generate_key()
         self.request_fingerprints = {}
         self.security_level = "MAXIMUM"
+        self.fingerprint_gen = FINGERPRINT_GENERATOR
         
     def _generate_key(self) -> str:
         """Generate encryption key"""
@@ -156,13 +633,28 @@ class AdvancedSecurityManager:
     
     def generate_request_fingerprint(self) -> Dict[str, Any]:
         """Generate unique request fingerprint"""
+        fp = self.fingerprint_gen.generate()
         fingerprint = {
             'timestamp': int(time.time() * 1000),
-            'session_id': str(uuid.uuid4()),
+            'session_id': fp['session_id'],
             'random_seed': random.randint(100000, 999999),
-            'user_agent_hash': hashlib.md5(str(time.time()).encode()).hexdigest()[:8]
+            'user_agent': fp['user_agent'],
+            'headers': fp['headers'],
         }
         return fingerprint
+    
+    def get_synchronized_fingerprint(self) -> Dict[str, Any]:
+        """Get fully synchronized fingerprint"""
+        return self.fingerprint_gen.generate()
+    
+    def get_stealth_script(self) -> str:
+        """Get stealth script for current fingerprint"""
+        fp = self.fingerprint_gen.generate()
+        return self.fingerprint_gen.get_stealth_script(fp)
+    
+    def rotate_fingerprint(self):
+        """Rotate to new fingerprint"""
+        return self.fingerprint_gen.rotate()
 
 class AntiDetectionManager:
     """Enhanced anti-detection tanpa menghilangkan fitur existing"""
