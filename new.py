@@ -1016,41 +1016,95 @@ class WebRTCWebGL_Spoofing2025:
             }
         }
     
-    def get_complete_fingerprint(self, device_type: str = "android", brand: str = "samsung", 
-                                  connection_type: str = "mobile") -> Dict[str, Any]:
-        """Get complete spoofing fingerprint"""
-        if device_type == "ios":
-            webrtc_profile = "ios_safari"
-            webgl_profile = "apple_gpu"
-            canvas_profile = "iphone_16_pro"
-            audio_profile = "ios"
-            font_profile = "ios"
-            screen_profile = "iphone_16_pro"
-        elif brand.lower() == "xiaomi":
-            webrtc_profile = "android_chrome_xiaomi"
-            webgl_profile = "mali_g710"
-            canvas_profile = "xiaomi_14_pro"
-            audio_profile = "android_xiaomi"
-            font_profile = "android_xiaomi"
-            screen_profile = "xiaomi_14_pro"
+    def get_complete_fingerprint(self, device_type: str = "desktop", brand: str = "dell", 
+                                  connection_type: str = "wifi") -> Dict[str, Any]:
+        """Get complete spoofing fingerprint - DESKTOP ONLY"""
+        # Desktop configurations for common laptop GPUs
+        desktop_webgl_configs = {
+            "intel_iris_xe": {
+                "vendor": "Intel Inc.",
+                "renderer": "ANGLE (Intel, Intel(R) Iris(R) Xe Graphics, OpenGL 4.6)",
+                "unmasked_vendor": "Google Inc. (Intel)",
+                "unmasked_renderer": "ANGLE (Intel, Intel(R) Iris(R) Xe Graphics, OpenGL 4.6)",
+                "version": "WebGL 2.0",
+                "shading_language": "WebGL GLSL ES 3.00"
+            },
+            "nvidia_rtx": {
+                "vendor": "NVIDIA Corporation",
+                "renderer": "ANGLE (NVIDIA, NVIDIA GeForce RTX 3050 Laptop GPU, OpenGL 4.6)",
+                "unmasked_vendor": "Google Inc. (NVIDIA)",
+                "unmasked_renderer": "ANGLE (NVIDIA, NVIDIA GeForce RTX 3050 Laptop GPU, OpenGL 4.6)",
+                "version": "WebGL 2.0",
+                "shading_language": "WebGL GLSL ES 3.00"
+            },
+            "apple_m1": {
+                "vendor": "Apple Inc.",
+                "renderer": "ANGLE (Apple, Apple M1 Pro, OpenGL 4.1)",
+                "unmasked_vendor": "Google Inc. (Apple)",
+                "unmasked_renderer": "ANGLE (Apple, Apple M1 Pro, OpenGL 4.1)",
+                "version": "WebGL 2.0",
+                "shading_language": "WebGL GLSL ES 3.00"
+            },
+            "amd_radeon": {
+                "vendor": "AMD",
+                "renderer": "ANGLE (AMD, AMD Radeon Graphics, OpenGL 4.6)",
+                "unmasked_vendor": "Google Inc. (AMD)",
+                "unmasked_renderer": "ANGLE (AMD, AMD Radeon Graphics, OpenGL 4.6)",
+                "version": "WebGL 2.0",
+                "shading_language": "WebGL GLSL ES 3.00"
+            }
+        }
+        
+        desktop_screen_configs = {
+            "1080p": {"width": 1920, "height": 1080, "avail_width": 1920, "avail_height": 1040, 
+                      "colorDepth": 24, "pixelDepth": 24, "devicePixelRatio": 1, "touch_support": False, "max_touch_points": 0},
+            "1200p": {"width": 1920, "height": 1200, "avail_width": 1920, "avail_height": 1160,
+                      "colorDepth": 24, "pixelDepth": 24, "devicePixelRatio": 1, "touch_support": False, "max_touch_points": 0},
+            "1440p": {"width": 2560, "height": 1440, "avail_width": 2560, "avail_height": 1400,
+                      "colorDepth": 24, "pixelDepth": 24, "devicePixelRatio": 1, "touch_support": False, "max_touch_points": 0},
+            "retina": {"width": 2880, "height": 1800, "avail_width": 2880, "avail_height": 1760,
+                       "colorDepth": 30, "pixelDepth": 30, "devicePixelRatio": 2, "touch_support": False, "max_touch_points": 0}
+        }
+        
+        desktop_audio_configs = {
+            "windows": {"sample_rate": 48000, "channels": 2, "noise_floor": 0.00001},
+            "macos": {"sample_rate": 44100, "channels": 2, "noise_floor": 0.00001}
+        }
+        
+        # Select appropriate desktop profile based on brand
+        brand_lower = brand.lower()
+        if "apple" in brand_lower or "mac" in brand_lower:
+            webgl_profile = "apple_m1"
+            screen_profile = "retina"
+            audio_profile = "macos"
+        elif "nvidia" in brand_lower or "asus" in brand_lower or "legion" in brand_lower or "rog" in brand_lower:
+            webgl_profile = "nvidia_rtx"
+            screen_profile = "1080p"
+            audio_profile = "windows"
+        elif "amd" in brand_lower:
+            webgl_profile = "amd_radeon"
+            screen_profile = "1080p"
+            audio_profile = "windows"
         else:
-            webrtc_profile = "android_chrome_samsung"
-            webgl_profile = "adreno_750"
-            canvas_profile = "samsung_galaxy_s24"
-            audio_profile = "android_samsung"
-            font_profile = "android_samsung"
-            screen_profile = "samsung_galaxy_s24"
+            # Default to Intel for Dell, HP, Lenovo ThinkPad, etc.
+            webgl_profile = "intel_iris_xe"
+            screen_profile = random.choice(["1080p", "1200p"])
+            audio_profile = "windows"
+        
+        webgl_config = desktop_webgl_configs.get(webgl_profile, desktop_webgl_configs["intel_iris_xe"])
+        screen_config = desktop_screen_configs.get(screen_profile, desktop_screen_configs["1080p"])
+        audio_config = desktop_audio_configs.get(audio_profile, desktop_audio_configs["windows"])
         
         return {
-            "webrtc": self.webrtc_configs.get(webrtc_profile, {}),
-            "webgl": self.webgl_configs.get(webgl_profile, {}),
-            "canvas": self.canvas_configs.get(canvas_profile, {}),
-            "audio": self.audio_configs.get(audio_profile, {}),
-            "fonts": self.font_configs.get(font_profile, {}),
-            "screen": self.screen_configs.get(screen_profile, {}),
-            "device_type": device_type,
+            "webrtc": {},  # WebRTC not needed for desktop fingerprinting
+            "webgl": webgl_config,
+            "canvas": {},  # Will use webgl settings
+            "audio": audio_config,
+            "fonts": {"fonts": ["Arial", "Helvetica", "Times New Roman", "Georgia", "Verdana", "Tahoma", "Segoe UI"]},
+            "screen": screen_config,
+            "device_type": "desktop",  # Always desktop
             "brand": brand,
-            "connection_type": connection_type,
+            "connection_type": "wifi",  # Always wifi for desktop
             "timestamp": int(time.time()),
             "fingerprint_id": f"fp_{int(time.time())}_{random.randint(1000, 9999)}",
             "noise_factors": {
@@ -1068,30 +1122,30 @@ class WebRTCWebGL_Spoofing2025:
         noise = fingerprint.get("noise_factors", {})
         
         return f"""
-        // === COMPREHENSIVE FINGERPRINT SPOOFING 2025 ===
+        // === COMPREHENSIVE FINGERPRINT SPOOFING 2025 - DESKTOP ===
         
         const SPOOF_CONFIG = {{
             webgl: {{
-                vendor: '{webgl_config.get("vendor", "Qualcomm")}',
-                renderer: '{webgl_config.get("renderer", "Adreno (TM) 750")}',
-                unmaskedVendor: '{webgl_config.get("unmasked_vendor", "Qualcomm")}',
-                unmaskedRenderer: '{webgl_config.get("unmasked_renderer", "Adreno (TM) 750")}',
+                vendor: '{webgl_config.get("vendor", "Intel Inc.")}',
+                renderer: '{webgl_config.get("renderer", "ANGLE (Intel, Intel(R) Iris(R) Xe Graphics, OpenGL 4.6)")}',
+                unmaskedVendor: '{webgl_config.get("unmasked_vendor", "Google Inc. (Intel)")}',
+                unmaskedRenderer: '{webgl_config.get("unmasked_renderer", "ANGLE (Intel, Intel(R) Iris(R) Xe Graphics, OpenGL 4.6)")}',
                 version: '{webgl_config.get("version", "WebGL 2.0")}',
                 shadingLanguage: '{webgl_config.get("shading_language", "WebGL GLSL ES 3.00")}'
             }},
             screen: {{
-                width: {screen_config.get("width", 1440)},
-                height: {screen_config.get("height", 3120)},
-                availWidth: {screen_config.get("avail_width", 1440)},
-                availHeight: {screen_config.get("avail_height", 3060)},
-                colorDepth: {screen_config.get("color_depth", 24)},
-                pixelDepth: {screen_config.get("pixel_depth", 24)},
-                devicePixelRatio: {screen_config.get("device_pixel_ratio", 3.0)},
-                maxTouchPoints: {screen_config.get("max_touch_points", 10)}
+                width: {screen_config.get("width", 1920)},
+                height: {screen_config.get("height", 1080)},
+                availWidth: {screen_config.get("avail_width", 1920)},
+                availHeight: {screen_config.get("avail_height", 1040)},
+                colorDepth: {screen_config.get("colorDepth", screen_config.get("color_depth", 24))},
+                pixelDepth: {screen_config.get("pixelDepth", screen_config.get("pixel_depth", 24))},
+                devicePixelRatio: {screen_config.get("devicePixelRatio", screen_config.get("device_pixel_ratio", 1))},
+                maxTouchPoints: {screen_config.get("max_touch_points", 0)}
             }},
             audio: {{
                 sampleRate: {audio_config.get("sample_rate", 48000)},
-                channelCount: {audio_config.get("channel_count", 2)}
+                channelCount: {audio_config.get("channels", audio_config.get("channel_count", 2))}
             }},
             noise: {{
                 canvas: {noise.get("canvas_noise", 0.003)},
@@ -3500,7 +3554,7 @@ class UltimateChromiumManager:
             stealth_script = self._get_ultimate_stealth_script()
             await context.add_init_script(stealth_script)
             
-            # Set realistic headers from IP config
+            # Set realistic headers from IP config - DESKTOP ONLY (no mobile headers)
             headers = ip_config.get("headers", {})
             await context.set_extra_http_headers({
                 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
@@ -3508,9 +3562,9 @@ class UltimateChromiumManager:
                 'Accept-Encoding': 'gzip, deflate, br',
                 'Cache-Control': 'no-cache',
                 'DNT': '1',
-                'Sec-CH-UA': headers.get('Sec-CH-UA', '"Chromium";v="135", "Google Chrome";v="135", "Not-A.Brand";v="99"'),
-                'Sec-CH-UA-Mobile': headers.get('Sec-CH-UA-Mobile', '?1'),
-                'Sec-CH-UA-Platform': headers.get('Sec-CH-UA-Platform', '"Android"'),
+                'Sec-CH-UA': headers.get('Sec-CH-UA', '"Chromium";v="122", "Google Chrome";v="122", "Not-A.Brand";v="99"'),
+                'Sec-CH-UA-Mobile': '?0',  # ALWAYS desktop - never ?1
+                'Sec-CH-UA-Platform': headers.get('Sec-CH-UA-Platform', '"Windows"'),  # Desktop platform
                 'Sec-Fetch-Dest': 'document',
                 'Sec-Fetch-Mode': 'navigate',
                 'Sec-Fetch-Site': 'none',
@@ -7445,13 +7499,16 @@ class Account:
         self.ip_rotation_count += 1
         self.last_ip_rotation = time.time()
         
-        # Get device info
+        # Get device info - DESKTOP ONLY (no mobile/Android)
         device_fp = ip_config.get("device_fingerprint", {})
-        brand = device_fp.get("brand", "Samsung").lower()
-        connection_type = ip_config.get("connection_type", "mobile")
+        # Force desktop brand - never use mobile device brands
+        brand = device_fp.get("brand", "Dell").lower()
+        # Force wifi/desktop connection - never mobile
+        connection_type = "wifi"
         
-        # Get WebRTC/WebGL fingerprint synchronized with device
-        webrtc_webgl_fp = self.webrtc_webgl_spoofer.get_complete_fingerprint("android", brand, connection_type)
+        # Get WebRTC/WebGL fingerprint synchronized with DESKTOP device
+        # Use "desktop" device type, not "android"
+        webrtc_webgl_fp = self.webrtc_webgl_spoofer.get_complete_fingerprint("desktop", brand, connection_type)
         
         # Extract headers
         headers = ip_config.get("headers", {})
