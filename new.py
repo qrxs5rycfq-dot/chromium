@@ -88,6 +88,16 @@ warnings.filterwarnings("ignore", category=RuntimeWarning,
                        message=".*HTTPS request is being sent through an HTTPS proxy.*")
 
 # ============================================================================
+# CONFIGURATION FLAGS
+# ============================================================================
+# Set to False to disable custom fingerprint spoofing (WebGL, Canvas, Audio, Navigator)
+# When False, only webdriver removal is applied for more natural browser behavior
+ENABLE_FINGERPRINT_SPOOFING = False
+
+# Set to False to use native Chromium headers instead of custom ones
+USE_CUSTOM_HEADERS = False
+
+# ============================================================================
 # FIELD PATTERNS FOR DYNAMIC FORM DETECTION
 # Multi-language support for placeholder/aria-label based field mapping
 # ============================================================================
@@ -2499,21 +2509,31 @@ class ChromiumManager:
     async def _add_stealth_scripts(self, context: BrowserContext):
         """Add enhanced stealth scripts to context with comprehensive fingerprint spoofing"""
         try:
-            # Get IP configuration with comprehensive spoofing data
-            ip_config = IP_STEALTH_SYSTEM.get_fresh_ip_config()
-            device_fp = ip_config.get("device_fingerprint", {})
-            
-            # Get WebRTC/WebGL fingerprint - DESKTOP ONLY
-            brand = device_fp.get("brand", "Dell").lower()
-            device_type = "desktop"  # ALWAYS desktop, never android
-            connection_type = "wifi"  # ALWAYS wifi, never mobile
-            webrtc_webgl_fp = WEBRTC_WEBGL_SPOOFER.get_complete_fingerprint(device_type, brand, connection_type)
-            
-            # Add comprehensive stealth injection script
-            comprehensive_script = WEBRTC_WEBGL_SPOOFER.get_stealth_injection_script(webrtc_webgl_fp)
-            await context.add_init_script(comprehensive_script)
-            
-            print(f"🛡️ [ChromiumManager] Comprehensive fingerprint spoofing applied")
+            # Check if fingerprint spoofing is enabled
+            if ENABLE_FINGERPRINT_SPOOFING:
+                # Get IP configuration with comprehensive spoofing data
+                ip_config = IP_STEALTH_SYSTEM.get_fresh_ip_config()
+                device_fp = ip_config.get("device_fingerprint", {})
+                
+                # Get WebRTC/WebGL fingerprint - DESKTOP ONLY
+                brand = device_fp.get("brand", "Dell").lower()
+                device_type = "desktop"  # ALWAYS desktop, never android
+                connection_type = "wifi"  # ALWAYS wifi, never mobile
+                webrtc_webgl_fp = WEBRTC_WEBGL_SPOOFER.get_complete_fingerprint(device_type, brand, connection_type)
+                
+                # Add comprehensive stealth injection script
+                comprehensive_script = WEBRTC_WEBGL_SPOOFER.get_stealth_injection_script(webrtc_webgl_fp)
+                await context.add_init_script(comprehensive_script)
+                
+                print(f"🛡️ [ChromiumManager] Comprehensive fingerprint spoofing applied")
+            else:
+                # Minimal stealth - only webdriver removal
+                minimal_stealth = """
+                // Minimal stealth - only webdriver removal
+                Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+                """
+                await context.add_init_script(minimal_stealth)
+                print(f"🛡️ [ChromiumManager] Minimal stealth applied (webdriver removal only)")
         except Exception as e:
             # Fallback to basic stealth script
             stealth_script = """
@@ -3524,51 +3544,64 @@ class UltimateChromiumManager:
     async def _apply_ultimate_stealth(self, context: BrowserContext):
         """Apply ultimate stealth scripts dan protections with comprehensive fingerprint spoofing"""
         try:
-            # Get IP configuration with comprehensive spoofing data
-            ip_config = IP_STEALTH_SYSTEM.get_fresh_ip_config()
-            device_fp = ip_config.get("device_fingerprint", {})
+            # Check if fingerprint spoofing is enabled
+            if ENABLE_FINGERPRINT_SPOOFING:
+                # Get IP configuration with comprehensive spoofing data
+                ip_config = IP_STEALTH_SYSTEM.get_fresh_ip_config()
+                device_fp = ip_config.get("device_fingerprint", {})
+                
+                # Get WebRTC/WebGL fingerprint - DESKTOP ONLY
+                brand = device_fp.get("brand", "Dell").lower()
+                device_type = "desktop"  # ALWAYS desktop, never android/ios
+                connection_type = "wifi"  # ALWAYS wifi, never mobile
+                webrtc_webgl_fp = WEBRTC_WEBGL_SPOOFER.get_complete_fingerprint(device_type, brand, connection_type)
+                
+                # Add comprehensive stealth injection script
+                comprehensive_script = WEBRTC_WEBGL_SPOOFER.get_stealth_injection_script(webrtc_webgl_fp)
+                await context.add_init_script(comprehensive_script)
+                
+                # Add main stealth script
+                stealth_script = self._get_ultimate_stealth_script()
+                await context.add_init_script(stealth_script)
+                
+                if self._verbose:
+                    print(f"🛡️ [UltimateChromiumManager] Comprehensive fingerprint spoofing applied")
+                    print(f"   📍 IP: {ip_config.get('ip')} ({ip_config.get('isp')})")
+                    print(f"   📱 Device: {device_fp.get('market_name', 'Unknown')}")
+                    print(f"   🔗 Connection: {connection_type}")
+            else:
+                # Minimal stealth - only webdriver removal
+                minimal_stealth = """
+                // Minimal stealth - only webdriver removal
+                Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+                """
+                await context.add_init_script(minimal_stealth)
+                if self._verbose:
+                    print(f"🛡️ [UltimateChromiumManager] Minimal stealth applied (webdriver removal only)")
             
-            # Get WebRTC/WebGL fingerprint - DESKTOP ONLY
-            brand = device_fp.get("brand", "Dell").lower()
-            device_type = "desktop"  # ALWAYS desktop, never android/ios
-            connection_type = "wifi"  # ALWAYS wifi, never mobile
-            webrtc_webgl_fp = WEBRTC_WEBGL_SPOOFER.get_complete_fingerprint(device_type, brand, connection_type)
-            
-            # Add comprehensive stealth injection script
-            comprehensive_script = WEBRTC_WEBGL_SPOOFER.get_stealth_injection_script(webrtc_webgl_fp)
-            await context.add_init_script(comprehensive_script)
-            
-            # Add main stealth script
-            stealth_script = self._get_ultimate_stealth_script()
-            await context.add_init_script(stealth_script)
-            
-            # Set realistic headers from IP config - DESKTOP ONLY (no mobile headers)
-            headers = ip_config.get("headers", {})
-            await context.set_extra_http_headers({
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
-                'Accept-Language': headers.get('Accept-Language', 'id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7'),
-                'Accept-Encoding': 'gzip, deflate, br',
-                'Cache-Control': 'no-cache',
-                'DNT': '1',
-                'Sec-CH-UA': headers.get('Sec-CH-UA', '"Chromium";v="122", "Google Chrome";v="122", "Not-A.Brand";v="99"'),
-                'Sec-CH-UA-Mobile': '?0',  # ALWAYS desktop - never ?1
-                'Sec-CH-UA-Platform': headers.get('Sec-CH-UA-Platform', '"Windows"'),  # Desktop platform
-                'Sec-Fetch-Dest': 'document',
-                'Sec-Fetch-Mode': 'navigate',
-                'Sec-Fetch-Site': 'none',
-                'Sec-Fetch-User': '?1',
-                'Upgrade-Insecure-Requests': '1',
-            })
+            # Set headers only if USE_CUSTOM_HEADERS is enabled
+            if USE_CUSTOM_HEADERS:
+                ip_config = IP_STEALTH_SYSTEM.get_fresh_ip_config()
+                headers = ip_config.get("headers", {})
+                await context.set_extra_http_headers({
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+                    'Accept-Language': headers.get('Accept-Language', 'id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7'),
+                    'Accept-Encoding': 'gzip, deflate, br',
+                    'Cache-Control': 'no-cache',
+                    'DNT': '1',
+                    'Sec-CH-UA': headers.get('Sec-CH-UA', '"Chromium";v="122", "Google Chrome";v="122", "Not-A.Brand";v="99"'),
+                    'Sec-CH-UA-Mobile': '?0',  # ALWAYS desktop - never ?1
+                    'Sec-CH-UA-Platform': headers.get('Sec-CH-UA-Platform', '"Windows"'),  # Desktop platform
+                    'Sec-Fetch-Dest': 'document',
+                    'Sec-Fetch-Mode': 'navigate',
+                    'Sec-Fetch-Site': 'none',
+                    'Sec-Fetch-User': '?1',
+                    'Upgrade-Insecure-Requests': '1',
+                })
             
             # Configure timeouts untuk realism
             context.set_default_timeout(45000)
             context.set_default_navigation_timeout(60000)
-            
-            if self._verbose:
-                print(f"🛡️ [UltimateChromiumManager] Comprehensive fingerprint spoofing applied")
-                print(f"   📍 IP: {ip_config.get('ip')} ({ip_config.get('isp')})")
-                print(f"   📱 Device: {device_fp.get('market_name', 'Unknown')}")
-                print(f"   🔗 Connection: {connection_type}")
             
         except Exception as e:
             logger.debug(f"Stealth application warning: {e}")
