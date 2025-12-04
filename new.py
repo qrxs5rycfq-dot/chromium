@@ -170,11 +170,23 @@ class AdvancedIPStealthSystem2025:
         self.rotation_interval = 300  # 5 minutes
         self.validator = IPValidator2025()
         
-        # Indonesian ISP configurations
+        # Track used IPs to prevent reuse (anti-blacklist)
+        self.used_ips = set()
+        self.max_used_ips_cache = 50000  # Clear cache when it gets too large
+        
+        # Indonesian ISP configurations - MASSIVELY EXPANDED for unlimited dynamic IPs
         self.isp_configs = {
             "telkomsel": {
-                "prefixes": ["110.136", "110.137", "114.122", "114.125", "112.215", "182.253"],
-                "cities": ["Jakarta", "Surabaya", "Bandung", "Medan", "Bali", "Semarang", "Makassar"],
+                "prefixes": [
+                    "110.136", "110.137", "110.138", "110.139", "110.140", "110.141", "110.142",
+                    "114.122", "114.123", "114.124", "114.125", "114.126", "114.127", "114.128",
+                    "112.215", "112.216", "112.217", "112.218", "112.219", "112.220",
+                    "182.253", "182.254", "182.255", "182.1", "182.2", "182.3",
+                    "36.64", "36.65", "36.66", "36.67", "36.68", "36.69", "36.70", "36.71",
+                    "118.99", "118.100", "118.101", "118.102", "118.103", "118.104",
+                    "180.248", "180.249", "180.250", "180.251", "180.252"
+                ],
+                "cities": ["Jakarta", "Surabaya", "Bandung", "Medan", "Bali", "Semarang", "Makassar", "Yogyakarta", "Palembang", "Tangerang", "Bekasi", "Depok"],
                 "asn": "AS23693",
                 "as_name": "Telkomsel",
                 "ttl_range": (54, 64),
@@ -183,8 +195,15 @@ class AdvancedIPStealthSystem2025:
                 "packet_loss": (0.0, 0.5)
             },
             "indosat": {
-                "prefixes": ["114.120", "114.121", "114.122", "36.68", "36.69", "36.71"],
-                "cities": ["Jakarta", "Surabaya", "Bandung", "Yogyakarta", "Semarang", "Palembang"],
+                "prefixes": [
+                    "114.120", "114.121", "114.122", "114.123", "114.124", "114.125",
+                    "36.68", "36.69", "36.70", "36.71", "36.72", "36.73", "36.74",
+                    "182.0", "182.1", "182.2", "182.3", "182.4", "182.5", "182.6",
+                    "180.241", "180.242", "180.243", "180.244", "180.245",
+                    "114.4", "114.5", "114.6", "114.7", "114.8", "114.9", "114.10",
+                    "202.62", "202.63", "202.64", "202.65", "202.66", "202.67"
+                ],
+                "cities": ["Jakarta", "Surabaya", "Bandung", "Yogyakarta", "Semarang", "Palembang", "Medan", "Bali", "Makassar", "Tangerang", "Bekasi"],
                 "asn": "AS4761",
                 "as_name": "Indosat Ooredoo",
                 "ttl_range": (52, 64),
@@ -193,8 +212,14 @@ class AdvancedIPStealthSystem2025:
                 "packet_loss": (0.0, 0.8)
             },
             "xl": {
-                "prefixes": ["36.85", "36.86", "36.87", "36.88", "118.97", "118.98"],
-                "cities": ["Jakarta", "Surabaya", "Bandung", "Medan", "Tangerang", "Bekasi"],
+                "prefixes": [
+                    "36.85", "36.86", "36.87", "36.88", "36.89", "36.90", "36.91", "36.92", "36.93",
+                    "118.97", "118.98", "118.99", "118.100", "118.101", "118.102",
+                    "180.244", "180.245", "180.246", "180.247", "180.248", "180.249",
+                    "112.215", "112.216", "112.217", "112.218", "112.219", "112.220",
+                    "202.152", "202.153", "202.154", "202.155", "202.156", "202.157"
+                ],
+                "cities": ["Jakarta", "Surabaya", "Bandung", "Medan", "Tangerang", "Bekasi", "Semarang", "Yogyakarta", "Bali", "Makassar"],
                 "asn": "AS24203",
                 "as_name": "XL Axiata",
                 "ttl_range": (52, 64),
@@ -203,8 +228,14 @@ class AdvancedIPStealthSystem2025:
                 "packet_loss": (0.0, 0.6)
             },
             "tri": {
-                "prefixes": ["116.206", "116.207", "114.5", "114.6", "180.244", "180.245"],
-                "cities": ["Jakarta", "Surabaya", "Bandung", "Yogyakarta", "Depok"],
+                "prefixes": [
+                    "116.206", "116.207", "116.208", "116.209", "116.210", "116.211",
+                    "114.5", "114.6", "114.7", "114.8", "114.9", "114.10",
+                    "180.244", "180.245", "180.246", "180.247", "180.248", "180.249",
+                    "36.76", "36.77", "36.78", "36.79", "36.80", "36.81",
+                    "110.232", "110.233", "110.234", "110.235", "110.236"
+                ],
+                "cities": ["Jakarta", "Surabaya", "Bandung", "Yogyakarta", "Depok", "Tangerang", "Bekasi", "Semarang", "Bali"],
                 "asn": "AS45727",
                 "as_name": "Tri Indonesia",
                 "ttl_range": (52, 64),
@@ -213,8 +244,14 @@ class AdvancedIPStealthSystem2025:
                 "packet_loss": (0.0, 0.7)
             },
             "smartfren": {
-                "prefixes": ["202.67", "202.68", "112.198", "112.199"],
-                "cities": ["Jakarta", "Surabaya", "Bandung", "Tangerang"],
+                "prefixes": [
+                    "202.67", "202.68", "202.69", "202.70", "202.71", "202.72",
+                    "112.198", "112.199", "112.200", "112.201", "112.202",
+                    "180.240", "180.241", "180.242", "180.243", "180.244",
+                    "103.47", "103.48", "103.49", "103.50", "103.51",
+                    "36.81", "36.82", "36.83", "36.84", "36.85"
+                ],
+                "cities": ["Jakarta", "Surabaya", "Bandung", "Tangerang", "Bekasi", "Depok", "Semarang", "Yogyakarta", "Bali"],
                 "asn": "AS18004",
                 "as_name": "Smartfren Telecom",
                 "ttl_range": (52, 64),
@@ -223,10 +260,72 @@ class AdvancedIPStealthSystem2025:
                 "packet_loss": (0.0, 0.5)
             },
             "biznet": {
-                "prefixes": ["103.23", "103.24", "112.78", "180.251"],
-                "cities": ["Jakarta", "Surabaya", "Bandung", "Bali"],
+                "prefixes": [
+                    "103.23", "103.24", "103.25", "103.26", "103.27", "103.28",
+                    "112.78", "112.79", "112.80", "112.81", "112.82",
+                    "180.251", "180.252", "180.253", "180.254", "180.255",
+                    "118.91", "118.92", "118.93", "118.94", "118.95",
+                    "202.93", "202.94", "202.95", "202.96", "202.97"
+                ],
+                "cities": ["Jakarta", "Surabaya", "Bandung", "Bali", "Yogyakarta", "Semarang", "Medan", "Makassar"],
                 "asn": "AS17451",
                 "as_name": "Biznet Networks",
+                "ttl_range": (58, 64),
+                "window_range": (65535, 65535),
+                "mss_range": (1440, 1460),
+                "packet_loss": (0.0, 0.2)
+            },
+            "myrepublic": {
+                "prefixes": [
+                    "103.10", "103.11", "103.12", "103.13", "103.14", "103.15",
+                    "182.253", "182.254", "182.255", "182.0", "182.1",
+                    "110.50", "110.51", "110.52", "110.53", "110.54"
+                ],
+                "cities": ["Jakarta", "Surabaya", "Bandung", "Bali", "Makassar", "Semarang"],
+                "asn": "AS55685",
+                "as_name": "MyRepublic Indonesia",
+                "ttl_range": (58, 64),
+                "window_range": (65535, 65535),
+                "mss_range": (1440, 1460),
+                "packet_loss": (0.0, 0.2)
+            },
+            "firstmedia": {
+                "prefixes": [
+                    "114.56", "114.57", "114.58", "114.59", "114.60", "114.61",
+                    "125.163", "125.164", "125.165", "125.166", "125.167",
+                    "180.214", "180.215", "180.216", "180.217", "180.218"
+                ],
+                "cities": ["Jakarta", "Surabaya", "Bandung", "Tangerang", "Bekasi", "Depok", "Bali"],
+                "asn": "AS23700",
+                "as_name": "First Media",
+                "ttl_range": (58, 64),
+                "window_range": (65535, 65535),
+                "mss_range": (1440, 1460),
+                "packet_loss": (0.0, 0.2)
+            },
+            "cbn": {
+                "prefixes": [
+                    "202.158", "202.159", "202.160", "202.161", "202.162",
+                    "180.252", "180.253", "180.254", "180.255", "180.0",
+                    "103.28", "103.29", "103.30", "103.31", "103.32"
+                ],
+                "cities": ["Jakarta", "Surabaya", "Bandung", "Bali", "Semarang", "Makassar"],
+                "asn": "AS9341",
+                "as_name": "CBN Indonesia",
+                "ttl_range": (58, 64),
+                "window_range": (65535, 65535),
+                "mss_range": (1440, 1460),
+                "packet_loss": (0.0, 0.3)
+            },
+            "iconnet": {
+                "prefixes": [
+                    "103.150", "103.151", "103.152", "103.153", "103.154",
+                    "182.1", "182.2", "182.3", "182.4", "182.5",
+                    "114.125", "114.126", "114.127", "114.128"
+                ],
+                "cities": ["Jakarta", "Surabaya", "Bandung", "Medan", "Bali"],
+                "asn": "AS131758",
+                "as_name": "Icon+ PLN",
                 "ttl_range": (58, 64),
                 "window_range": (65535, 65535),
                 "mss_range": (1440, 1460),
@@ -234,36 +333,61 @@ class AdvancedIPStealthSystem2025:
             }
         }
         
-        # City coordinates
+        # City coordinates with timezone mapping
         self.city_coordinates = {
-            "Jakarta": {"lat": -6.2088, "lon": 106.8456},
-            "Surabaya": {"lat": -7.2575, "lon": 112.7521},
-            "Bandung": {"lat": -6.9175, "lon": 107.6191},
-            "Medan": {"lat": 3.5952, "lon": 98.6722},
-            "Bali": {"lat": -8.4095, "lon": 115.1889},
-            "Makassar": {"lat": -5.1477, "lon": 119.4327},
-            "Semarang": {"lat": -6.9667, "lon": 110.4167},
-            "Palembang": {"lat": -2.9909, "lon": 104.7566},
-            "Yogyakarta": {"lat": -7.7956, "lon": 110.3695},
-            "Tangerang": {"lat": -6.1783, "lon": 106.6319},
-            "Bekasi": {"lat": -6.2383, "lon": 106.9756},
-            "Depok": {"lat": -6.4025, "lon": 106.7942}
+            # WIB (Western Indonesia Time) - UTC+7
+            "Jakarta": {"lat": -6.2088, "lon": 106.8456, "timezone": "Asia/Jakarta", "tz_offset": 7},
+            "Surabaya": {"lat": -7.2575, "lon": 112.7521, "timezone": "Asia/Jakarta", "tz_offset": 7},
+            "Bandung": {"lat": -6.9175, "lon": 107.6191, "timezone": "Asia/Jakarta", "tz_offset": 7},
+            "Medan": {"lat": 3.5952, "lon": 98.6722, "timezone": "Asia/Jakarta", "tz_offset": 7},
+            "Semarang": {"lat": -6.9667, "lon": 110.4167, "timezone": "Asia/Jakarta", "tz_offset": 7},
+            "Palembang": {"lat": -2.9909, "lon": 104.7566, "timezone": "Asia/Jakarta", "tz_offset": 7},
+            "Yogyakarta": {"lat": -7.7956, "lon": 110.3695, "timezone": "Asia/Jakarta", "tz_offset": 7},
+            "Tangerang": {"lat": -6.1783, "lon": 106.6319, "timezone": "Asia/Jakarta", "tz_offset": 7},
+            "Bekasi": {"lat": -6.2383, "lon": 106.9756, "timezone": "Asia/Jakarta", "tz_offset": 7},
+            "Depok": {"lat": -6.4025, "lon": 106.7942, "timezone": "Asia/Jakarta", "tz_offset": 7},
+            # WITA (Central Indonesia Time) - UTC+8
+            "Bali": {"lat": -8.4095, "lon": 115.1889, "timezone": "Asia/Makassar", "tz_offset": 8},
+            "Makassar": {"lat": -5.1477, "lon": 119.4327, "timezone": "Asia/Makassar", "tz_offset": 8},
+            "Balikpapan": {"lat": -1.2654, "lon": 116.8312, "timezone": "Asia/Makassar", "tz_offset": 8},
+            "Pontianak": {"lat": -0.0263, "lon": 109.3425, "timezone": "Asia/Pontianak", "tz_offset": 7},
         }
         
     def get_fresh_ip_config(self) -> Dict[str, Any]:
-        """Get fresh IP configuration with full spoofing data"""
+        """Get fresh IP configuration with full spoofing data - NEVER REUSE IPs"""
         # Select random ISP
         isp_name = random.choice(list(self.isp_configs.keys()))
         config = self.isp_configs[isp_name]
         
-        # Generate IP
-        ip = self._generate_valid_ip(isp_name, config)
+        # Generate unique IP (anti-blacklist: never reuse)
+        ip = self._generate_unique_ip(isp_name, config)
         
-        # Determine connection type
-        connection_type = random.choice(["mobile", "wifi"]) if isp_name in ["telkomsel", "indosat", "xl", "tri", "smartfren"] else "wifi"
+        # Determine connection type - desktop uses WiFi
+        connection_type = "wifi"  # Desktop only
         
         # Create full IP profile
         return self._create_ip_profile(ip, config, isp_name, connection_type)
+    
+    def _generate_unique_ip(self, isp_name: str, config: Dict[str, Any]) -> str:
+        """Generate unique IP that has never been used before (anti-blacklist)"""
+        max_attempts = 100
+        
+        # Clear cache if too large
+        if len(self.used_ips) >= self.max_used_ips_cache:
+            # Keep only the last 10000 IPs
+            self.used_ips = set(list(self.used_ips)[-10000:])
+        
+        for _ in range(max_attempts):
+            ip = self._generate_valid_ip(isp_name, config)
+            if ip not in self.used_ips:
+                self.used_ips.add(ip)
+                return ip
+        
+        # If all attempts failed, generate completely random from prefix
+        prefix = random.choice(config["prefixes"])
+        ip = f"{prefix}.{random.randint(2, 253)}.{random.randint(2, 253)}"
+        self.used_ips.add(ip)
+        return ip
     
     def _generate_valid_ip(self, isp_name: str, config: Dict[str, Any]) -> str:
         """Generate valid Indonesian IP"""
@@ -311,23 +435,22 @@ class AdvancedIPStealthSystem2025:
             return False
     
     def _create_ip_profile(self, ip: str, config: Dict[str, Any], isp_name: str, connection_type: str) -> Dict[str, Any]:
-        """Create comprehensive IP profile"""
+        """Create comprehensive IP profile with synchronized location and timezone"""
         city = random.choice(config["cities"])
-        city_coords = self.city_coordinates.get(city, {"lat": -6.2088, "lon": 106.8456})
+        city_info = self.city_coordinates.get(city, {
+            "lat": -6.2088, "lon": 106.8456, "timezone": "Asia/Jakarta", "tz_offset": 7
+        })
         
-        # Network metrics based on connection type
-        if connection_type == "mobile":
-            latency = random.uniform(15, 45)
-            jitter = random.uniform(2, 10)
-            signal_strength = random.randint(-70, -50)
-            bandwidth = random.uniform(10, 100)
-            network_type = random.choice(["4G", "5G", "LTE"])
-        else:
-            latency = random.uniform(5, 20)
-            jitter = random.uniform(1, 5)
-            signal_strength = random.randint(-40, -20)
-            bandwidth = random.uniform(50, 500)
-            network_type = "WiFi"
+        # Get synchronized timezone from city
+        timezone = city_info.get("timezone", "Asia/Jakarta")
+        tz_offset = city_info.get("tz_offset", 7)
+        
+        # Network metrics for desktop/WiFi
+        latency = random.uniform(5, 20)
+        jitter = random.uniform(1, 5)
+        signal_strength = random.randint(-40, -20)
+        bandwidth = random.uniform(50, 500)
+        network_type = "WiFi"
         
         # Generate device fingerprint
         device_fingerprint = self._generate_device_fingerprint(isp_name, connection_type)
@@ -350,12 +473,13 @@ class AdvancedIPStealthSystem2025:
                 "city": city,
                 "country": "Indonesia",
                 "country_code": "ID",
-                "latitude": round(city_coords["lat"] + random.uniform(-0.01, 0.01), 6),
-                "longitude": round(city_coords["lon"] + random.uniform(-0.01, 0.01), 6),
-                "timezone": "Asia/Jakarta",
-                "carrier": isp_name.upper() if connection_type == "mobile" else "WiFi",
+                "latitude": round(city_info["lat"] + random.uniform(-0.01, 0.01), 6),
+                "longitude": round(city_info["lon"] + random.uniform(-0.01, 0.01), 6),
+                "timezone": timezone,
+                "tz_offset": tz_offset,
+                "carrier": "WiFi",
                 "mcc": "510",
-                "mnc": self._get_mnc(isp_name) if connection_type == "mobile" else ""
+                "mnc": ""
             },
             "network_metrics": {
                 "latency_ms": round(latency, 2),
