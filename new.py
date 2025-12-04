@@ -12021,6 +12021,60 @@ class Account:
         try:
             print("   🔍 Checking for captcha image on this page...")
             
+            # DEBUG: First, let's see what's actually on this page
+            print("   📋 DEBUG: Analyzing page structure...")
+            
+            # Check for iframes (captcha might be inside iframe)
+            iframes = await page.query_selector_all('iframe')
+            print(f"   📋 Found {len(iframes)} iframe(s)")
+            for i, iframe in enumerate(iframes):
+                try:
+                    src = await iframe.get_attribute('src') or 'no-src'
+                    print(f"      [{i}] iframe src: {src[:80]}")
+                except Exception:
+                    pass
+            
+            # Check for images on the page
+            images = await page.query_selector_all('img')
+            visible_images = []
+            print(f"   📋 Found {len(images)} image(s) total")
+            for img in images:
+                try:
+                    if await img.is_visible():
+                        src = await img.get_attribute('src') or ''
+                        alt = await img.get_attribute('alt') or ''
+                        bbox = await img.bounding_box()
+                        width = bbox['width'] if bbox else 0
+                        height = bbox['height'] if bbox else 0
+                        visible_images.append({'src': src[:50], 'alt': alt, 'w': width, 'h': height})
+                except Exception:
+                    continue
+            
+            if visible_images:
+                print(f"   📋 Visible images ({len(visible_images)}):")
+                for i, img_info in enumerate(visible_images):
+                    print(f"      [{i}] {img_info['w']:.0f}x{img_info['h']:.0f} alt='{img_info['alt']}' src='{img_info['src']}'")
+            
+            # Check for canvas elements (some captchas use canvas)
+            canvas = await page.query_selector_all('canvas')
+            print(f"   📋 Found {len(canvas)} canvas element(s)")
+            
+            # Get page text content for debugging
+            try:
+                page_text = await page.evaluate("() => document.body.innerText")
+                # Look for captcha-related text
+                text_lower = page_text.lower()
+                if 'code' in text_lower or 'image' in text_lower or 'captcha' in text_lower:
+                    # Find relevant lines
+                    lines = [l.strip() for l in page_text.split('\n') if l.strip()]
+                    captcha_lines = [l for l in lines if any(kw in l.lower() for kw in ['code', 'image', 'enter', 'type', 'captcha'])]
+                    if captcha_lines:
+                        print(f"   📋 Captcha-related text found:")
+                        for line in captcha_lines[:5]:
+                            print(f"      '{line[:60]}'")
+            except Exception:
+                pass
+            
             # First, check if there's an input field for captcha code
             captcha_input = await self._find_captcha_input(page)
             if not captcha_input:
