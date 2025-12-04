@@ -489,29 +489,36 @@ class AdvancedIPStealthSystem2025:
         }
     
     def _generate_enhanced_headers(self, device_fp: Dict[str, Any], connection_type: str) -> Dict[str, str]:
-        """Generate enhanced HTTP headers"""
-        brand = device_fp.get("brand", "Samsung")
+        """Generate natural-looking HTTP headers that blend in with real browser traffic"""
+        # Use minimal headers - too many custom headers look suspicious
+        # Real browsers send very few headers by default
         
-        # Generate sec-ch-ua
-        sec_ch_ua = '"Chromium";v="135", "Google Chrome";v="135", "Not-A.Brand";v="99"'
+        user_agent = device_fp.get("user_agent", "")
         
-        return {
-            "User-Agent": device_fp.get("user_agent", ""),
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
-            "Accept-Language": "id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7",
+        # Only include essential headers that real browsers send
+        # Avoid: DNT, Pragma, Cache-Control (these are optional and can look suspicious)
+        headers = {
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+            "Accept-Language": "en-US,en;q=0.9",
             "Accept-Encoding": "gzip, deflate, br",
-            "Cache-Control": "no-cache",
-            "Pragma": "no-cache",
-            "Sec-CH-UA": sec_ch_ua,
-            "Sec-CH-UA-Mobile": "?1" if connection_type == "mobile" else "?0",
-            "Sec-CH-UA-Platform": '"Android"',
             "Sec-Fetch-Dest": "document",
             "Sec-Fetch-Mode": "navigate",
             "Sec-Fetch-Site": "none",
             "Sec-Fetch-User": "?1",
             "Upgrade-Insecure-Requests": "1",
-            "DNT": "1"
         }
+        
+        # Only add Sec-CH-UA headers for Chrome (not for older browsers)
+        if "Chrome" in user_agent:
+            # Extract Chrome version from user agent
+            chrome_match = re.search(r'Chrome/(\d+)', user_agent)
+            chrome_version = chrome_match.group(1) if chrome_match else "120"
+            
+            headers["Sec-CH-UA"] = f'"Chromium";v="{chrome_version}", "Google Chrome";v="{chrome_version}", "Not-A.Brand";v="24"'
+            headers["Sec-CH-UA-Mobile"] = "?1" if connection_type == "mobile" else "?0"
+            headers["Sec-CH-UA-Platform"] = '"Android"' if "Android" in user_agent else '"Windows"'
+        
+        return headers
     
     def should_rotate_ip(self) -> bool:
         """Check if IP should be rotated"""
@@ -7200,6 +7207,12 @@ class Account:
         # Extract headers
         headers = ip_config.get("headers", {})
         
+        # Extract location info properly (it's nested in "location" object)
+        location_info = ip_config.get("location", {})
+        city = location_info.get("city", ip_config.get("city", "Jakarta"))
+        timezone = location_info.get("timezone", ip_config.get("timezone", "Asia/Jakarta"))
+        country = location_info.get("country", "Indonesia")
+        
         identity = {
             "ip_config": ip_config,
             "webrtc_webgl_fingerprint": webrtc_webgl_fp,
@@ -7209,7 +7222,12 @@ class Account:
             "ja3": ip_config.get("fingerprints", {}).get("ja3", ""),
             "tls": ip_config.get("fingerprints", {}).get("tls", {}),
             "rotation_count": self.ip_rotation_count,
-            "timestamp": int(time.time())
+            "timestamp": int(time.time()),
+            # Add extracted location for easier access
+            "city": city,
+            "timezone": timezone,
+            "country": country,
+            "locale": "id-ID" if country == "Indonesia" else "en-US",
         }
         
         # Always print detailed identity info
@@ -7219,8 +7237,8 @@ class Account:
         print(f"   🔢 Rotation Count: #{self.ip_rotation_count}")
         print(f"   📍 IP Address: {ip_config.get('ip', 'N/A')}")
         print(f"   🏢 ISP: {ip_config.get('isp', 'Unknown')}")
-        print(f"   📍 Location: {ip_config.get('city', 'Unknown')}, {ip_config.get('region', '')}")
-        print(f"   🌐 Timezone: {ip_config.get('timezone', 'Unknown')}")
+        print(f"   📍 Location: {city}, {country}")
+        print(f"   🌐 Timezone: {timezone}")
         print(f"   🔗 Connection: {connection_type}")
         print("-" * 60)
         print(f"   📱 Brand: {device_fp.get('brand', 'Unknown')}")
@@ -8262,158 +8280,31 @@ class Account:
         # Canvas noise seed for consistency
         canvas_noise = canvas_config.get("noise", random.uniform(0.0001, 0.001))
         
+        # SIMPLIFIED STEALTH - Less aggressive, more natural
+        # Only essential overrides that real privacy extensions use
         return f'''
-        // ========== SYNCHRONIZED FINGERPRINT SPOOFING ==========
+        // ========== MINIMAL STEALTH (Natural) ==========
         
-        // WebDriver removal
+        // Remove webdriver flag (essential)
         Object.defineProperty(navigator, 'webdriver', {{get: () => undefined}});
-        delete navigator.__proto__.webdriver;
         
-        // Automation flags
-        if (window.navigator.webdriver !== undefined) {{
-            delete window.navigator.webdriver;
-        }}
-        
-        // WebGL Vendor/Renderer spoofing (synchronized)
-        const getParameterProxyHandler = {{
-            apply: function(target, thisArg, args) {{
-                const param = args[0];
-                const gl = thisArg;
-                
-                // UNMASKED_VENDOR_WEBGL
-                if (param === 37445) {{
-                    return "{vendor}";
-                }}
-                // UNMASKED_RENDERER_WEBGL
-                if (param === 37446) {{
-                    return "{renderer}";
-                }}
-                return Reflect.apply(target, thisArg, args);
-            }}
-        }};
-        
-        try {{
-            const canvas = document.createElement('canvas');
-            const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
-            if (gl) {{
-                const originalGetParameter = gl.getParameter.bind(gl);
-                gl.getParameter = new Proxy(originalGetParameter, getParameterProxyHandler);
-            }}
-            const gl2 = canvas.getContext('webgl2');
-            if (gl2) {{
-                const originalGetParameter2 = gl2.getParameter.bind(gl2);
-                gl2.getParameter = new Proxy(originalGetParameter2, getParameterProxyHandler);
-            }}
-        }} catch(e) {{}}
-        
-        // Screen properties (synchronized)
-        Object.defineProperty(screen, 'width', {{get: () => {screen_width}}});
-        Object.defineProperty(screen, 'height', {{get: () => {screen_height}}});
-        Object.defineProperty(screen, 'availWidth', {{get: () => {screen_width}}});
-        Object.defineProperty(screen, 'availHeight', {{get: () => {screen_height - 40}}});
-        Object.defineProperty(screen, 'colorDepth', {{get: () => {color_depth}}});
-        Object.defineProperty(screen, 'pixelDepth', {{get: () => {color_depth}}});
-        Object.defineProperty(window, 'devicePixelRatio', {{get: () => {pixel_ratio}}});
-        
-        // Hardware (synchronized)
-        Object.defineProperty(navigator, 'hardwareConcurrency', {{get: () => {hardware_concurrency}}});
-        Object.defineProperty(navigator, 'deviceMemory', {{get: () => {device_memory}}});
-        
-        // Canvas fingerprint protection with consistent noise
-        const originalToDataURL = HTMLCanvasElement.prototype.toDataURL;
-        HTMLCanvasElement.prototype.toDataURL = function(type) {{
-            if (type === 'image/png' || type === undefined) {{
-                const context = this.getContext('2d');
-                if (context) {{
-                    const imageData = context.getImageData(0, 0, this.width, this.height);
-                    const data = imageData.data;
-                    // Apply consistent noise based on seed
-                    for (let i = 0; i < data.length; i += 4) {{
-                        const noise = (Math.sin(i * {canvas_noise}) * 0.5 + 0.5) * 2 - 1;
-                        data[i] = Math.max(0, Math.min(255, data[i] + noise));
-                    }}
-                    context.putImageData(imageData, 0, 0);
-                }}
-            }}
-            return originalToDataURL.apply(this, arguments);
-        }};
-        
-        // Audio fingerprint protection
-        const originalGetChannelData = AudioBuffer.prototype.getChannelData;
-        AudioBuffer.prototype.getChannelData = function(channel) {{
-            const data = originalGetChannelData.call(this, channel);
-            // Add minimal consistent noise
-            for (let i = 0; i < data.length; i += 100) {{
-                data[i] = data[i] + (Math.sin(i * {canvas_noise}) * 0.0001);
-            }}
-            return data;
-        }};
-        
-        // WebRTC IP leak protection
-        const originalRTCPeerConnection = window.RTCPeerConnection;
-        if (originalRTCPeerConnection) {{
-            window.RTCPeerConnection = function(...args) {{
-                const pc = new originalRTCPeerConnection(...args);
-                const originalAddIceCandidate = pc.addIceCandidate.bind(pc);
-                pc.addIceCandidate = function(candidate) {{
-                    if (candidate && candidate.candidate) {{
-                        // Filter out local IP addresses
-                        if (candidate.candidate.includes('typ host')) {{
-                            return Promise.resolve();
-                        }}
-                    }}
-                    return originalAddIceCandidate(candidate);
-                }};
-                return pc;
-            }};
-            window.RTCPeerConnection.prototype = originalRTCPeerConnection.prototype;
-        }}
-        
-        // Chrome runtime mock
+        // Chrome runtime (essential for Chrome detection)
         if (!window.chrome) {{
-            window.chrome = {{}};
-        }}
-        if (!window.chrome.runtime) {{
-            window.chrome.runtime = {{
-                connect: function() {{ return {{}}; }},
-                sendMessage: function() {{}},
-                onMessage: {{ addListener: function() {{}} }}
-            }};
+            window.chrome = {{ runtime: {{}} }};
         }}
         
-        // Plugins mock
+        // Natural plugins (most browsers have these)
         Object.defineProperty(navigator, 'plugins', {{
-            get: () => {{
-                const plugins = [
-                    {{ name: 'Chrome PDF Plugin', filename: 'internal-pdf-viewer', description: 'Portable Document Format' }},
-                    {{ name: 'Chrome PDF Viewer', filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai', description: '' }},
-                    {{ name: 'Native Client', filename: 'internal-nacl-plugin', description: '' }}
-                ];
-                plugins.length = 3;
-                return plugins;
-            }}
+            get: () => [
+                {{ name: 'Chrome PDF Plugin', filename: 'internal-pdf-viewer' }},
+                {{ name: 'Chrome PDF Viewer', filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai' }},
+            ]
         }});
         
-        // Languages
+        // Standard languages
         Object.defineProperty(navigator, 'languages', {{get: () => ['en-US', 'en']}});
         
-        // Permissions API override
-        if (navigator.permissions) {{
-            const originalQuery = navigator.permissions.query;
-            navigator.permissions.query = function(parameters) {{
-                if (parameters.name === 'notifications') {{
-                    return Promise.resolve({{ state: 'prompt', onchange: null }});
-                }}
-                return originalQuery.call(this, parameters);
-            }};
-        }}
-        
-        // Disable battery API
-        if (navigator.getBattery) {{
-            navigator.getBattery = undefined;
-        }}
-        
-        console.log('[Stealth] ✅ Synchronized fingerprint applied');
+        console.log('[Stealth] Minimal stealth applied');
         '''
 
     async def stop_chromium(self) -> bool:
