@@ -399,45 +399,145 @@ class AdvancedIPStealthSystem2025:
         return mnc_map.get(isp, "10")
     
     def _generate_device_fingerprint(self, isp: str, connection_type: str) -> Dict[str, Any]:
-        """Generate device fingerprint - DESKTOP ONLY (laptop/Mac)"""
-        # Desktop/Laptop devices only - no mobile
+        """Generate device fingerprint - DESKTOP ONLY (laptop/Mac) with dynamic user agents"""
+        # Expanded list of desktop/laptop devices
         devices = [
-            {"brand": "Apple", "model": "MacBookPro18,1", "market_name": "MacBook Pro 16-inch",
-             "os": "macOS", "os_version": "14.2", "screen_resolution": "1920x1080", "dpi": 112,
+            # === Apple MacBooks ===
+            {"brand": "Apple", "model": "MacBookPro18,1", "market_name": "MacBook Pro 16-inch M1 Pro",
+             "os": "macOS", "os_version": "14.2", "macos_name": "Sonoma", "screen_resolution": "1920x1080", "dpi": 112,
              "platform": "MacIntel", "gpu_vendor": "Apple", "gpu_renderer": "Apple M1 Pro"},
-            {"brand": "Apple", "model": "MacBookPro18,3", "market_name": "MacBook Pro 14-inch",
-             "os": "macOS", "os_version": "14.1", "screen_resolution": "1512x982", "dpi": 112,
+            {"brand": "Apple", "model": "MacBookPro18,3", "market_name": "MacBook Pro 14-inch M1 Pro",
+             "os": "macOS", "os_version": "14.1", "macos_name": "Sonoma", "screen_resolution": "1512x982", "dpi": 112,
              "platform": "MacIntel", "gpu_vendor": "Apple", "gpu_renderer": "Apple M1 Pro"},
+            {"brand": "Apple", "model": "MacBookPro18,2", "market_name": "MacBook Pro 16-inch M1 Max",
+             "os": "macOS", "os_version": "14.0", "macos_name": "Sonoma", "screen_resolution": "1920x1080", "dpi": 112,
+             "platform": "MacIntel", "gpu_vendor": "Apple", "gpu_renderer": "Apple M1 Max"},
+            {"brand": "Apple", "model": "Mac14,7", "market_name": "MacBook Pro 13-inch M2",
+             "os": "macOS", "os_version": "13.6", "macos_name": "Ventura", "screen_resolution": "1440x900", "dpi": 112,
+             "platform": "MacIntel", "gpu_vendor": "Apple", "gpu_renderer": "Apple M2"},
+            {"brand": "Apple", "model": "Mac15,3", "market_name": "MacBook Pro 14-inch M3",
+             "os": "macOS", "os_version": "14.2", "macos_name": "Sonoma", "screen_resolution": "1512x982", "dpi": 112,
+             "platform": "MacIntel", "gpu_vendor": "Apple", "gpu_renderer": "Apple M3"},
             {"brand": "Apple", "model": "MacBookAir10,1", "market_name": "MacBook Air M1",
-             "os": "macOS", "os_version": "13.6", "screen_resolution": "1440x900", "dpi": 112,
+             "os": "macOS", "os_version": "13.6", "macos_name": "Ventura", "screen_resolution": "1440x900", "dpi": 112,
              "platform": "MacIntel", "gpu_vendor": "Apple", "gpu_renderer": "Apple M1"},
-            {"brand": "Dell", "model": "XPS 15", "market_name": "Dell XPS 15",
+            {"brand": "Apple", "model": "Mac14,2", "market_name": "MacBook Air M2",
+             "os": "macOS", "os_version": "14.1", "macos_name": "Sonoma", "screen_resolution": "1470x956", "dpi": 112,
+             "platform": "MacIntel", "gpu_vendor": "Apple", "gpu_renderer": "Apple M2"},
+            {"brand": "Apple", "model": "Mac15,12", "market_name": "MacBook Air 13-inch M3",
+             "os": "macOS", "os_version": "14.3", "macos_name": "Sonoma", "screen_resolution": "1470x956", "dpi": 112,
+             "platform": "MacIntel", "gpu_vendor": "Apple", "gpu_renderer": "Apple M3"},
+            
+            # === Dell Laptops ===
+            {"brand": "Dell", "model": "XPS 15 9530", "market_name": "Dell XPS 15",
              "os": "Windows", "os_version": "10.0", "screen_resolution": "1920x1200", "dpi": 96,
-             "platform": "Win32", "gpu_vendor": "NVIDIA Corporation", "gpu_renderer": "NVIDIA GeForce RTX 3050 Ti Laptop GPU"},
-            {"brand": "HP", "model": "Spectre x360", "market_name": "HP Spectre x360",
+             "platform": "Win32", "gpu_vendor": "NVIDIA Corporation", "gpu_renderer": "NVIDIA GeForce RTX 4060 Laptop GPU"},
+            {"brand": "Dell", "model": "XPS 13 9315", "market_name": "Dell XPS 13",
+             "os": "Windows", "os_version": "11.0", "screen_resolution": "1920x1200", "dpi": 96,
+             "platform": "Win32", "gpu_vendor": "Intel Inc.", "gpu_renderer": "Intel Iris Xe Graphics"},
+            {"brand": "Dell", "model": "XPS 17 9730", "market_name": "Dell XPS 17",
+             "os": "Windows", "os_version": "11.0", "screen_resolution": "2560x1600", "dpi": 96,
+             "platform": "Win32", "gpu_vendor": "NVIDIA Corporation", "gpu_renderer": "NVIDIA GeForce RTX 4070 Laptop GPU"},
+            {"brand": "Dell", "model": "Inspiron 15 3520", "market_name": "Dell Inspiron 15",
+             "os": "Windows", "os_version": "11.0", "screen_resolution": "1920x1080", "dpi": 96,
+             "platform": "Win32", "gpu_vendor": "Intel Inc.", "gpu_renderer": "Intel UHD Graphics"},
+            {"brand": "Dell", "model": "Latitude 5540", "market_name": "Dell Latitude 5540",
              "os": "Windows", "os_version": "11.0", "screen_resolution": "1920x1080", "dpi": 96,
              "platform": "Win32", "gpu_vendor": "Intel Inc.", "gpu_renderer": "Intel Iris Xe Graphics"},
-            {"brand": "Lenovo", "model": "ThinkPad X1 Carbon", "market_name": "ThinkPad X1 Carbon Gen 11",
+            
+            # === HP Laptops ===
+            {"brand": "HP", "model": "Spectre x360 14", "market_name": "HP Spectre x360 14",
+             "os": "Windows", "os_version": "11.0", "screen_resolution": "1920x1280", "dpi": 96,
+             "platform": "Win32", "gpu_vendor": "Intel Inc.", "gpu_renderer": "Intel Iris Xe Graphics"},
+            {"brand": "HP", "model": "Pavilion 15", "market_name": "HP Pavilion 15",
+             "os": "Windows", "os_version": "11.0", "screen_resolution": "1920x1080", "dpi": 96,
+             "platform": "Win32", "gpu_vendor": "NVIDIA Corporation", "gpu_renderer": "NVIDIA GeForce RTX 3050"},
+            {"brand": "HP", "model": "Envy x360 15", "market_name": "HP Envy x360 15",
+             "os": "Windows", "os_version": "11.0", "screen_resolution": "1920x1080", "dpi": 96,
+             "platform": "Win32", "gpu_vendor": "AMD", "gpu_renderer": "AMD Radeon Graphics"},
+            {"brand": "HP", "model": "EliteBook 840 G9", "market_name": "HP EliteBook 840 G9",
+             "os": "Windows", "os_version": "11.0", "screen_resolution": "1920x1200", "dpi": 96,
+             "platform": "Win32", "gpu_vendor": "Intel Inc.", "gpu_renderer": "Intel Iris Xe Graphics"},
+            {"brand": "HP", "model": "ProBook 450 G9", "market_name": "HP ProBook 450 G9",
+             "os": "Windows", "os_version": "10.0", "screen_resolution": "1920x1080", "dpi": 96,
+             "platform": "Win32", "gpu_vendor": "Intel Inc.", "gpu_renderer": "Intel UHD Graphics"},
+            
+            # === Lenovo Laptops ===
+            {"brand": "Lenovo", "model": "ThinkPad X1 Carbon Gen 11", "market_name": "ThinkPad X1 Carbon Gen 11",
              "os": "Windows", "os_version": "11.0", "screen_resolution": "2560x1440", "dpi": 96,
              "platform": "Win32", "gpu_vendor": "Intel Inc.", "gpu_renderer": "Intel Iris Xe Graphics"},
-            {"brand": "ASUS", "model": "ZenBook 14", "market_name": "ASUS ZenBook 14",
-             "os": "Windows", "os_version": "10.0", "screen_resolution": "1920x1080", "dpi": 96,
-             "platform": "Win32", "gpu_vendor": "NVIDIA Corporation", "gpu_renderer": "NVIDIA GeForce MX450"}
+            {"brand": "Lenovo", "model": "ThinkPad T14 Gen 4", "market_name": "ThinkPad T14 Gen 4",
+             "os": "Windows", "os_version": "11.0", "screen_resolution": "1920x1200", "dpi": 96,
+             "platform": "Win32", "gpu_vendor": "Intel Inc.", "gpu_renderer": "Intel Iris Xe Graphics"},
+            {"brand": "Lenovo", "model": "IdeaPad Slim 5", "market_name": "Lenovo IdeaPad Slim 5",
+             "os": "Windows", "os_version": "11.0", "screen_resolution": "1920x1080", "dpi": 96,
+             "platform": "Win32", "gpu_vendor": "AMD", "gpu_renderer": "AMD Radeon Graphics"},
+            {"brand": "Lenovo", "model": "Yoga 9i Gen 8", "market_name": "Lenovo Yoga 9i Gen 8",
+             "os": "Windows", "os_version": "11.0", "screen_resolution": "2880x1800", "dpi": 96,
+             "platform": "Win32", "gpu_vendor": "Intel Inc.", "gpu_renderer": "Intel Iris Xe Graphics"},
+            {"brand": "Lenovo", "model": "Legion 5 Pro", "market_name": "Lenovo Legion 5 Pro",
+             "os": "Windows", "os_version": "11.0", "screen_resolution": "2560x1600", "dpi": 96,
+             "platform": "Win32", "gpu_vendor": "NVIDIA Corporation", "gpu_renderer": "NVIDIA GeForce RTX 4070 Laptop GPU"},
+            
+            # === ASUS Laptops ===
+            {"brand": "ASUS", "model": "ZenBook 14 UX3402", "market_name": "ASUS ZenBook 14",
+             "os": "Windows", "os_version": "11.0", "screen_resolution": "2880x1800", "dpi": 96,
+             "platform": "Win32", "gpu_vendor": "Intel Inc.", "gpu_renderer": "Intel Iris Xe Graphics"},
+            {"brand": "ASUS", "model": "VivoBook 15 X1502", "market_name": "ASUS VivoBook 15",
+             "os": "Windows", "os_version": "11.0", "screen_resolution": "1920x1080", "dpi": 96,
+             "platform": "Win32", "gpu_vendor": "Intel Inc.", "gpu_renderer": "Intel UHD Graphics"},
+            {"brand": "ASUS", "model": "ROG Zephyrus G14", "market_name": "ASUS ROG Zephyrus G14",
+             "os": "Windows", "os_version": "11.0", "screen_resolution": "2560x1600", "dpi": 96,
+             "platform": "Win32", "gpu_vendor": "NVIDIA Corporation", "gpu_renderer": "NVIDIA GeForce RTX 4060 Laptop GPU"},
+            {"brand": "ASUS", "model": "ProArt Studiobook 16", "market_name": "ASUS ProArt Studiobook 16",
+             "os": "Windows", "os_version": "11.0", "screen_resolution": "3200x2000", "dpi": 96,
+             "platform": "Win32", "gpu_vendor": "NVIDIA Corporation", "gpu_renderer": "NVIDIA GeForce RTX 4070 Laptop GPU"},
+            
+            # === Acer Laptops ===
+            {"brand": "Acer", "model": "Swift 3 SF314", "market_name": "Acer Swift 3",
+             "os": "Windows", "os_version": "11.0", "screen_resolution": "1920x1080", "dpi": 96,
+             "platform": "Win32", "gpu_vendor": "Intel Inc.", "gpu_renderer": "Intel Iris Xe Graphics"},
+            {"brand": "Acer", "model": "Aspire 5 A515", "market_name": "Acer Aspire 5",
+             "os": "Windows", "os_version": "11.0", "screen_resolution": "1920x1080", "dpi": 96,
+             "platform": "Win32", "gpu_vendor": "Intel Inc.", "gpu_renderer": "Intel UHD Graphics"},
+            {"brand": "Acer", "model": "Predator Helios 16", "market_name": "Acer Predator Helios 16",
+             "os": "Windows", "os_version": "11.0", "screen_resolution": "2560x1600", "dpi": 96,
+             "platform": "Win32", "gpu_vendor": "NVIDIA Corporation", "gpu_renderer": "NVIDIA GeForce RTX 4080 Laptop GPU"},
+            
+            # === Microsoft Surface ===
+            {"brand": "Microsoft", "model": "Surface Laptop 5", "market_name": "Microsoft Surface Laptop 5",
+             "os": "Windows", "os_version": "11.0", "screen_resolution": "2256x1504", "dpi": 96,
+             "platform": "Win32", "gpu_vendor": "Intel Inc.", "gpu_renderer": "Intel Iris Xe Graphics"},
+            {"brand": "Microsoft", "model": "Surface Pro 9", "market_name": "Microsoft Surface Pro 9",
+             "os": "Windows", "os_version": "11.0", "screen_resolution": "2880x1920", "dpi": 96,
+             "platform": "Win32", "gpu_vendor": "Intel Inc.", "gpu_renderer": "Intel Iris Xe Graphics"},
         ]
         
         device = random.choice(devices)
-        chrome_version = random.choice(["120.0.0.0", "121.0.0.0", "122.0.0.0", "123.0.0.0", "124.0.0.0", "125.0.0.0"])
         
-        # Generate appropriate user agent based on OS
+        # Dynamic Chrome version (latest stable versions)
+        chrome_major = random.choice([120, 121, 122, 123, 124, 125, 126, 127])
+        chrome_build = random.randint(6000, 6500)
+        chrome_patch = random.randint(50, 200)
+        chrome_version = f"{chrome_major}.0.{chrome_build}.{chrome_patch}"
+        
+        # Generate synchronized user agent based on OS
         if device["os"] == "macOS":
-            user_agent = f"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{chrome_version} Safari/537.36"
+            # macOS version mapping for user agent
+            macos_versions = {
+                "14.0": "10_15_7", "14.1": "10_15_7", "14.2": "10_15_7", "14.3": "10_15_7",
+                "13.6": "10_15_7", "13.5": "10_15_7"
+            }
+            mac_ua_version = macos_versions.get(device["os_version"], "10_15_7")
+            user_agent = f"Mozilla/5.0 (Macintosh; Intel Mac OS X {mac_ua_version}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{chrome_version} Safari/537.36"
         else:
-            win_version = "10.0" if device["os_version"] == "10.0" else "10.0"
-            user_agent = f"Mozilla/5.0 (Windows NT {win_version}; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{chrome_version} Safari/537.36"
+            # Windows version
+            user_agent = f"Mozilla/5.0 (Windows NT {device['os_version']}; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{chrome_version} Safari/537.36"
         
         return {
             **device,
             "chrome_version": chrome_version,
+            "chrome_major": chrome_major,
             "user_agent": user_agent,
             "device_id": hashlib.md5(f"{device['model']}{time.time()}{random.random()}".encode()).hexdigest()[:16]
         }
@@ -502,15 +602,12 @@ class AdvancedIPStealthSystem2025:
         }
     
     def _generate_enhanced_headers(self, device_fp: Dict[str, Any], connection_type: str) -> Dict[str, str]:
-        """Generate natural-looking HTTP headers that blend in with real browser traffic"""
-        # Use minimal headers - too many custom headers look suspicious
-        # Real browsers send very few headers by default
-        
+        """Generate natural-looking HTTP headers synchronized with device fingerprint"""
         user_agent = device_fp.get("user_agent", "")
         platform = device_fp.get("platform", "Win32")
+        chrome_major = device_fp.get("chrome_major", 120)
         
-        # Only include essential headers that real browsers send
-        # Avoid: DNT, Pragma, Cache-Control (these are optional and can look suspicious)
+        # Minimal essential headers - real browsers don't send many headers
         headers = {
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
             "Accept-Language": "en-US,en;q=0.9",
@@ -522,16 +619,18 @@ class AdvancedIPStealthSystem2025:
             "Upgrade-Insecure-Requests": "1",
         }
         
-        # Only add Sec-CH-UA headers for Chrome (not for older browsers)
+        # Sec-CH-UA headers - synchronized with Chrome version from device fingerprint
         if "Chrome" in user_agent:
-            # Extract Chrome version from user agent
-            chrome_match = re.search(r'Chrome/(\d+)', user_agent)
-            chrome_version = chrome_match.group(1) if chrome_match else "120"
+            # Use the exact Chrome major version from the fingerprint
+            chrome_version = str(chrome_major)
             
-            headers["Sec-CH-UA"] = f'"Chromium";v="{chrome_version}", "Google Chrome";v="{chrome_version}", "Not-A.Brand";v="24"'
+            # Not-A.Brand version varies by Chrome version
+            not_a_brand = "8" if chrome_major < 122 else "24"
+            
+            headers["Sec-CH-UA"] = f'"Chromium";v="{chrome_version}", "Google Chrome";v="{chrome_version}", "Not-A.Brand";v="{not_a_brand}"'
             headers["Sec-CH-UA-Mobile"] = "?0"  # Desktop only
             
-            # Platform based on device
+            # Platform synchronized with device
             if platform == "MacIntel" or "Macintosh" in user_agent:
                 headers["Sec-CH-UA-Platform"] = '"macOS"'
             else:
