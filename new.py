@@ -11756,26 +11756,80 @@ class Account:
             return image
 
     async def _find_captcha_input(self, page) -> Optional[Any]:
-        """Find the captcha input field"""
+        """Find the captcha input field with extensive debugging"""
+        print("   🔍 Searching for captcha input field...")
+        
+        # First, let's see all visible input elements on the page for debugging
+        try:
+            all_inputs = await page.query_selector_all('input')
+            visible_inputs = []
+            for inp in all_inputs:
+                try:
+                    if await inp.is_visible():
+                        placeholder = await inp.get_attribute('placeholder') or ''
+                        aria_label = await inp.get_attribute('aria-label') or ''
+                        name = await inp.get_attribute('name') or ''
+                        input_type = await inp.get_attribute('type') or 'text'
+                        visible_inputs.append({
+                            'placeholder': placeholder,
+                            'aria_label': aria_label,
+                            'name': name,
+                            'type': input_type
+                        })
+                except Exception:
+                    continue
+            
+            if visible_inputs:
+                print(f"   📋 Found {len(visible_inputs)} visible input(s):")
+                for i, inp_info in enumerate(visible_inputs):
+                    print(f"      [{i}] type={inp_info['type']}, placeholder='{inp_info['placeholder'][:50]}', name='{inp_info['name']}', aria='{inp_info['aria_label'][:30]}'")
+            else:
+                print("   ⚠️ No visible input elements found on page")
+        except Exception as e:
+            print(f"   ⚠️ Error listing inputs: {e}")
+        
+        # Expanded selectors with "image" keyword and more variations
         input_selectors = [
+            # Most specific first - matching "Enter the code from the image"
+            'input[placeholder*="image" i]',
+            'input[placeholder*="code from" i]',
+            'input[placeholder*="enter the code" i]',
+            'input[aria-label*="image" i]',
+            'input[aria-label*="code from" i]',
+            # Standard captcha patterns
             'input[placeholder*="code" i]',
             'input[aria-label*="code" i]',
             'input[placeholder*="captcha" i]',
+            'input[aria-label*="captcha" i]',
             'input[name*="captcha" i]',
             'input[name*="code" i]',
-            'input[type="text"]:not([name*="email"]):not([name*="password"])',
+            'input[name*="response" i]',
+            'input[id*="captcha" i]',
+            'input[id*="code" i]',
+            # Security check patterns
+            'input[placeholder*="security" i]',
+            'input[placeholder*="verify" i]',
+            'input[placeholder*="confirmation" i]',
+            # Generic text input on captcha-like pages
+            'input[type="text"]:not([name*="email"]):not([name*="password"]):not([name*="username"])',
             'input[type="number"]',
-            'input:not([type="hidden"]):not([type="email"]):not([type="password"]):not([type="checkbox"])'
+            'input[type="tel"]',
+            # Last resort - any visible text input
+            'input:not([type="hidden"]):not([type="email"]):not([type="password"]):not([type="checkbox"]):not([type="submit"]):not([type="button"])'
         ]
         
         for selector in input_selectors:
             try:
                 element = await page.query_selector(selector)
                 if element and await element.is_visible():
+                    placeholder = await element.get_attribute('placeholder') or 'none'
+                    print(f"   ✅ Found captcha input with selector: {selector}")
+                    print(f"      Placeholder: '{placeholder}'")
                     return element
             except Exception:
                 continue
         
+        print("   ❌ No captcha input found with any selector")
         return None
 
     async def _is_captcha_error(self, page) -> bool:
