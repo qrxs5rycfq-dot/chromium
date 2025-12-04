@@ -5508,8 +5508,93 @@ class Sepuluh:
         return None
 
     # -----------------------------
-    #  GET CODE (Instagram)
+    #  GET CODE (Instagram) - Enhanced with comprehensive patterns
     # -----------------------------
+    
+    # Comprehensive OTP extraction patterns for Indonesian and English
+    OTP_PATTERNS = [
+        # ===== BAHASA INDONESIA - HIGH PRIORITY (3) =====
+        # Subject patterns
+        ("ID_SUBJECT_KODE_1", r"'subject':\s*'(\d{6})\s+adalah\s+kode\s+Instagram\s+(?:Anda|anda)'", 3),
+        ("ID_SUBJECT_KODE_2", r"'subject':\s*'Kode\s+Instagram\s+(?:Anda|anda):?\s*(\d{6})'", 3),
+        ("ID_SUBJECT_KODE_3", r"'subject':\s*'(\d{6})\s+kode\s+verifikasi\s+Instagram'", 3),
+        ("ID_SUBJECT_VERIF_1", r"'subject':\s*'Verifikasi\s+Instagram:\s*(\d{6})'", 3),
+        ("ID_SUBJECT_VERIF_2", r"'subject':\s*'Masukkan\s+kode\s+verifikasi:\s*(\d{6})'", 3),
+        ("ID_SUBJECT_VERIF_3", r"'subject':\s*'Kode\s+verifikasi\s+Instagram:\s*(\d{6})'", 3),
+        
+        # Body patterns - Indonesian
+        ("ID_BODY_KODE_1", r'(\d{6})\s+adalah\s+kode\s+Instagram\s+(?:Anda|anda)', 3),
+        ("ID_BODY_KODE_2", r'Kode\s+Instagram\s+(?:Anda|anda):?\s*(\d{6})', 3),
+        ("ID_BODY_VERIF_1", r'kode\s+verifikasi\s+Instagram[:\s]*(\d{6})', 3),
+        ("ID_BODY_VERIF_2", r'Masukkan\s+kode\s+berikut[:\s]*(\d{6})', 3),
+        ("ID_BODY_VERIF_3", r'kode\s+konfirmasi[:\s]*(\d{6})', 3),
+        ("ID_BODY_VERIF_4", r'kode\s+Instagram[:\s]*(\d{6})', 3),
+        ("ID_BODY_VERIF_5", r'kode\s+ini[:\s]*(\d{6})', 3),
+        ("ID_BODY_VERIF_6", r'gunakan\s+kode[:\s]*(\d{6})', 3),
+        
+        # ===== BAHASA INGGRIS - MEDIUM PRIORITY (2) =====
+        # Subject patterns - English
+        ("EN_SUBJECT_CODE_1", r"'subject':\s*'(\d{6})\s+is\s+your\s+Instagram\s+code'", 2),
+        ("EN_SUBJECT_CODE_2", r"'subject':\s*'Your\s+Instagram\s+code:?\s*(\d{6})'", 2),
+        ("EN_SUBJECT_CODE_3", r"'subject':\s*'(\d{6})\s+Instagram\s+verification\s+code'", 2),
+        ("EN_SUBJECT_VERIF_1", r"'subject':\s*'Instagram\s+verification:\s*(\d{6})'", 2),
+        ("EN_SUBJECT_VERIF_2", r"'subject':\s*'Enter\s+verification\s+code:\s*(\d{6})'", 2),
+        ("EN_SUBJECT_VERIF_3", r"'subject':\s*'Verification\s+code:\s*(\d{6})'", 2),
+        
+        # Body patterns - English
+        ("EN_BODY_CODE_1", r'(\d{6})\s+is\s+your\s+Instagram\s+code', 2),
+        ("EN_BODY_CODE_2", r'Your\s+Instagram\s+code:?\s*(\d{6})', 2),
+        ("EN_BODY_CODE_3", r'Instagram\s+code[:\s]+(\d{6})', 2),
+        ("EN_BODY_VERIF_1", r'verification\s+code[:\s]+(\d{6})', 2),
+        ("EN_BODY_VERIF_2", r'Enter\s+the\s+following\s+code[:\s]+(\d{6})', 2),
+        ("EN_BODY_VERIF_3", r'confirmation\s+code[:\s]+(\d{6})', 2),
+        ("EN_BODY_VERIF_4", r'security\s+code[:\s]+(\d{6})', 2),
+        ("EN_BODY_VERIF_5", r'use\s+(?:this\s+)?code[:\s]+(\d{6})', 2),
+        ("EN_BODY_VERIF_6", r'enter\s+(?:this\s+)?code[:\s]+(\d{6})', 2),
+        
+        # ===== GENERIC PATTERNS - LOW PRIORITY (1) =====
+        # Generic subject with 6 digits
+        ("GEN_SUBJECT_1", r"'subject':\s*'[^']*(\d{6})[^']*Instagram[^']*'", 1),
+        ("GEN_SUBJECT_2", r"'subject':\s*'[^']*Instagram[^']*(\d{6})[^']*'", 1),
+        
+        # Generic body patterns
+        ("GEN_BODY_1", r'Instagram[^0-9]*(\d{6})', 1),
+        ("GEN_BODY_2", r'(\d{6})[^0-9]*Instagram', 1),
+        ("GEN_BODY_3", r'code[:\s]+(\d{6})', 1),
+        ("GEN_BODY_4", r'kode[:\s]+(\d{6})', 1),
+        
+        # Fallback - just find any 6-digit number near Instagram
+        ("FALLBACK_1", r'[^0-9](\d{6})[^0-9]', 1),
+    ]
+    
+    @staticmethod
+    def _extract_otp_with_patterns(data_str: str) -> Optional[str]:
+        """Extract OTP code using comprehensive pattern matching with priority scoring"""
+        matches_with_priority = []
+        
+        for pattern_name, pattern, priority in Sepuluh.OTP_PATTERNS:
+            try:
+                found = re.findall(pattern, data_str, re.IGNORECASE)
+                if found:
+                    for code in found:
+                        # Validate it's a 6-digit code
+                        if isinstance(code, str) and len(code) == 6 and code.isdigit():
+                            matches_with_priority.append((code, priority, pattern_name))
+            except Exception:
+                continue
+        
+        if not matches_with_priority:
+            return None
+        
+        # Sort by priority (higher first) and return the best match
+        matches_with_priority.sort(key=lambda x: x[1], reverse=True)
+        best_match = matches_with_priority[0]
+        
+        # Debug log (commented out for production)
+        # print(f"[OTP] Found code {best_match[0]} via pattern {best_match[2]} (priority {best_match[1]})")
+        
+        return best_match[0]
+    
     @staticmethod
     def get_code(timeout=20):
         if not Sepuluh._init_session():
@@ -5524,18 +5609,458 @@ class Sepuluh:
             try:
                 resp = Sepuluh.ses.get(url, timeout=5, verify=False)
                 data = resp.json()
-            except:
+                data_str = str(data)
+            except Exception:
                 time.sleep(2)
                 continue
 
-            if "Instagram" in str(data):
-                code = re.findall('\'subject\': \'(.*?) is your Instagram code\',', str(data))[0]
-                return code
+            # Check if Instagram email received
+            if "Instagram" in data_str or "instagram" in data_str.lower():
+                # Try comprehensive pattern extraction
+                code = Sepuluh._extract_otp_with_patterns(data_str)
+                if code:
+                    return code
+                
+                # Fallback: try original simple pattern
+                try:
+                    simple_match = re.findall(r"'subject':\s*'(\d{6})\s+is\s+your\s+Instagram\s+code'", data_str)
+                    if simple_match:
+                        return simple_match[0]
+                except Exception:
+                    pass
 
             time.sleep(2)
 
         # print("[TIMEOUT] Tidak ada kode masuk dalam waktu", timeout, "detik")
         return None
+
+
+# ============================================================================
+# ADDITIONAL TEMP MAIL PROVIDERS
+# ============================================================================
+
+class TempMailOrg:
+    """Temp Mail API using temp-mail.org"""
+    ses = requests.Session()
+    ses.trust_env = False
+    ses.headers.update({
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Accept': 'application/json',
+    })
+    
+    # Use shared OTP patterns from Sepuluh
+    OTP_PATTERNS = Sepuluh.OTP_PATTERNS
+    
+    @staticmethod
+    def _extract_otp_with_patterns(data_str: str) -> Optional[str]:
+        return Sepuluh._extract_otp_with_patterns(data_str)
+    
+    @staticmethod
+    def get_mail(name=None, retry=3):
+        """Get a new temp email address from temp-mail.org"""
+        for attempt in range(retry):
+            try:
+                # Get available domains
+                domains_resp = TempMailOrg.ses.get(
+                    "https://www.1secmail.com/api/v1/?action=getDomainList",
+                    timeout=10
+                )
+                domains = domains_resp.json()
+                
+                if domains:
+                    domain = random.choice(domains)
+                    username = ''.join(random.choices(string.ascii_lowercase + string.digits, k=10))
+                    email = f"{username}@{domain}"
+                    return email
+            except Exception:
+                time.sleep(1)
+        return None
+    
+    @staticmethod
+    def get_code(email: str = None, timeout=30):
+        """Get Instagram OTP code from temp-mail.org inbox"""
+        if not email:
+            return None
+        
+        try:
+            username, domain = email.split('@')
+        except Exception:
+            return None
+        
+        start = time.time()
+        
+        while time.time() - start < timeout:
+            try:
+                # Check inbox
+                resp = TempMailOrg.ses.get(
+                    f"https://www.1secmail.com/api/v1/?action=getMessages&login={username}&domain={domain}",
+                    timeout=10
+                )
+                messages = resp.json()
+                
+                for msg in messages:
+                    # Get message content
+                    msg_id = msg.get('id')
+                    if msg_id:
+                        msg_resp = TempMailOrg.ses.get(
+                            f"https://www.1secmail.com/api/v1/?action=readMessage&login={username}&domain={domain}&id={msg_id}",
+                            timeout=10
+                        )
+                        msg_data = msg_resp.json()
+                        
+                        # Check if from Instagram
+                        sender = msg_data.get('from', '').lower()
+                        subject = msg_data.get('subject', '')
+                        body = msg_data.get('body', '')
+                        
+                        if 'instagram' in sender or 'instagram' in subject.lower():
+                            # Try to extract code
+                            full_text = f"'subject': '{subject}', 'body': '{body}'"
+                            code = TempMailOrg._extract_otp_with_patterns(full_text)
+                            if code:
+                                return code
+            except Exception:
+                pass
+            
+            time.sleep(3)
+        
+        return None
+
+
+class GuerrillaMailAPI:
+    """Guerrilla Mail API - reliable temp mail provider"""
+    ses = requests.Session()
+    ses.trust_env = False
+    base_url = "https://api.guerrillamail.com/ajax.php"
+    email_user = None
+    sid_token = None
+    
+    OTP_PATTERNS = Sepuluh.OTP_PATTERNS
+    
+    @staticmethod
+    def _extract_otp_with_patterns(data_str: str) -> Optional[str]:
+        return Sepuluh._extract_otp_with_patterns(data_str)
+    
+    @staticmethod
+    def get_mail(name=None, retry=3):
+        """Get a new temp email from Guerrilla Mail"""
+        for attempt in range(retry):
+            try:
+                resp = GuerrillaMailAPI.ses.get(
+                    GuerrillaMailAPI.base_url,
+                    params={'f': 'get_email_address', 'lang': 'en'},
+                    timeout=15
+                )
+                data = resp.json()
+                
+                email = data.get('email_addr')
+                GuerrillaMailAPI.sid_token = data.get('sid_token')
+                GuerrillaMailAPI.email_user = data.get('email_user')
+                
+                if email:
+                    return email
+            except Exception:
+                time.sleep(1)
+        return None
+    
+    @staticmethod
+    def get_code(timeout=30):
+        """Get Instagram OTP code from Guerrilla Mail inbox"""
+        if not GuerrillaMailAPI.sid_token:
+            return None
+        
+        start = time.time()
+        
+        while time.time() - start < timeout:
+            try:
+                resp = GuerrillaMailAPI.ses.get(
+                    GuerrillaMailAPI.base_url,
+                    params={
+                        'f': 'get_email_list',
+                        'offset': 0,
+                        'sid_token': GuerrillaMailAPI.sid_token
+                    },
+                    timeout=10
+                )
+                data = resp.json()
+                emails = data.get('list', [])
+                
+                for email in emails:
+                    subject = email.get('mail_subject', '')
+                    sender = email.get('mail_from', '').lower()
+                    
+                    if 'instagram' in sender or 'instagram' in subject.lower():
+                        # Get full email
+                        mail_id = email.get('mail_id')
+                        if mail_id:
+                            email_resp = GuerrillaMailAPI.ses.get(
+                                GuerrillaMailAPI.base_url,
+                                params={
+                                    'f': 'fetch_email',
+                                    'email_id': mail_id,
+                                    'sid_token': GuerrillaMailAPI.sid_token
+                                },
+                                timeout=10
+                            )
+                            email_data = email_resp.json()
+                            body = email_data.get('mail_body', '')
+                            
+                            full_text = f"'subject': '{subject}', 'body': '{body}'"
+                            code = GuerrillaMailAPI._extract_otp_with_patterns(full_text)
+                            if code:
+                                return code
+            except Exception:
+                pass
+            
+            time.sleep(3)
+        
+        return None
+
+
+class TempMailLol:
+    """TempMail.lol API - fast and reliable"""
+    ses = requests.Session()
+    ses.trust_env = False
+    base_url = "https://api.tempmail.lol"
+    token = None
+    email = None
+    
+    OTP_PATTERNS = Sepuluh.OTP_PATTERNS
+    
+    @staticmethod
+    def _extract_otp_with_patterns(data_str: str) -> Optional[str]:
+        return Sepuluh._extract_otp_with_patterns(data_str)
+    
+    @staticmethod
+    def get_mail(name=None, retry=3):
+        """Get a new temp email from tempmail.lol"""
+        for attempt in range(retry):
+            try:
+                resp = TempMailLol.ses.post(
+                    f"{TempMailLol.base_url}/generate",
+                    timeout=15
+                )
+                data = resp.json()
+                
+                TempMailLol.email = data.get('address')
+                TempMailLol.token = data.get('token')
+                
+                if TempMailLol.email:
+                    return TempMailLol.email
+            except Exception:
+                time.sleep(1)
+        return None
+    
+    @staticmethod
+    def get_code(timeout=30):
+        """Get Instagram OTP code from tempmail.lol inbox"""
+        if not TempMailLol.token:
+            return None
+        
+        start = time.time()
+        
+        while time.time() - start < timeout:
+            try:
+                resp = TempMailLol.ses.get(
+                    f"{TempMailLol.base_url}/auth/{TempMailLol.token}",
+                    timeout=10
+                )
+                data = resp.json()
+                emails = data.get('email', [])
+                
+                for email in emails:
+                    subject = email.get('subject', '')
+                    sender = email.get('from', '').lower()
+                    body = email.get('body', '')
+                    
+                    if 'instagram' in sender or 'instagram' in subject.lower():
+                        full_text = f"'subject': '{subject}', 'body': '{body}'"
+                        code = TempMailLol._extract_otp_with_patterns(full_text)
+                        if code:
+                            return code
+            except Exception:
+                pass
+            
+            time.sleep(3)
+        
+        return None
+
+
+class MailGwAPI:
+    """Mail.gw API - another reliable option"""
+    ses = requests.Session()
+    ses.trust_env = False
+    base_url = "https://api.mail.gw"
+    token = None
+    account_id = None
+    email = None
+    
+    OTP_PATTERNS = Sepuluh.OTP_PATTERNS
+    
+    @staticmethod
+    def _extract_otp_with_patterns(data_str: str) -> Optional[str]:
+        return Sepuluh._extract_otp_with_patterns(data_str)
+    
+    @staticmethod
+    def get_mail(name=None, retry=3):
+        """Get a new temp email from mail.gw"""
+        for attempt in range(retry):
+            try:
+                # Get domains first
+                domains_resp = MailGwAPI.ses.get(
+                    f"{MailGwAPI.base_url}/domains",
+                    timeout=10
+                )
+                domains_data = domains_resp.json()
+                domains = domains_data.get('hydra:member', [])
+                
+                if not domains:
+                    continue
+                
+                domain = random.choice(domains).get('domain')
+                username = ''.join(random.choices(string.ascii_lowercase + string.digits, k=10))
+                password = ''.join(random.choices(string.ascii_letters + string.digits, k=12))
+                email_addr = f"{username}@{domain}"
+                
+                # Create account
+                create_resp = MailGwAPI.ses.post(
+                    f"{MailGwAPI.base_url}/accounts",
+                    json={
+                        'address': email_addr,
+                        'password': password
+                    },
+                    timeout=15
+                )
+                create_data = create_resp.json()
+                
+                MailGwAPI.account_id = create_data.get('id')
+                MailGwAPI.email = create_data.get('address')
+                
+                # Get token
+                token_resp = MailGwAPI.ses.post(
+                    f"{MailGwAPI.base_url}/token",
+                    json={
+                        'address': email_addr,
+                        'password': password
+                    },
+                    timeout=10
+                )
+                token_data = token_resp.json()
+                MailGwAPI.token = token_data.get('token')
+                
+                if MailGwAPI.email:
+                    return MailGwAPI.email
+            except Exception:
+                time.sleep(1)
+        return None
+    
+    @staticmethod
+    def get_code(timeout=30):
+        """Get Instagram OTP code from mail.gw inbox"""
+        if not MailGwAPI.token or not MailGwAPI.account_id:
+            return None
+        
+        start = time.time()
+        
+        while time.time() - start < timeout:
+            try:
+                resp = MailGwAPI.ses.get(
+                    f"{MailGwAPI.base_url}/messages",
+                    headers={'Authorization': f'Bearer {MailGwAPI.token}'},
+                    timeout=10
+                )
+                data = resp.json()
+                messages = data.get('hydra:member', [])
+                
+                for msg in messages:
+                    subject = msg.get('subject', '')
+                    sender = msg.get('from', {}).get('address', '').lower()
+                    
+                    if 'instagram' in sender or 'instagram' in subject.lower():
+                        # Get full message
+                        msg_id = msg.get('id')
+                        if msg_id:
+                            msg_resp = MailGwAPI.ses.get(
+                                f"{MailGwAPI.base_url}/messages/{msg_id}",
+                                headers={'Authorization': f'Bearer {MailGwAPI.token}'},
+                                timeout=10
+                            )
+                            msg_data = msg_resp.json()
+                            body = msg_data.get('text', '') or msg_data.get('html', '')
+                            
+                            full_text = f"'subject': '{subject}', 'body': '{body}'"
+                            code = MailGwAPI._extract_otp_with_patterns(full_text)
+                            if code:
+                                return code
+            except Exception:
+                pass
+            
+            time.sleep(3)
+        
+        return None
+
+
+class TempMailProvider:
+    """
+    Unified temp mail provider that tries multiple services
+    Automatically falls back to next provider if one fails
+    """
+    
+    PROVIDERS = [
+        ('Sepuluh', Sepuluh),
+        ('1SecMail', TempMailOrg),
+        ('GuerrillaMail', GuerrillaMailAPI),
+        ('TempMailLol', TempMailLol),
+        ('MailGw', MailGwAPI),
+    ]
+    
+    current_provider_index = 0
+    current_email = None
+    current_provider = None
+    
+    @classmethod
+    def get_mail(cls, name=None):
+        """Try to get email from available providers"""
+        for i, (provider_name, provider_class) in enumerate(cls.PROVIDERS):
+            try:
+                email = provider_class.get_mail(name)
+                if email:
+                    cls.current_provider_index = i
+                    cls.current_email = email
+                    cls.current_provider = provider_class
+                    print(f"[TempMail] ✅ Using {provider_name}: {email}")
+                    return email
+            except Exception as e:
+                print(f"[TempMail] ⚠️ {provider_name} failed: {str(e)[:50]}")
+                continue
+        
+        print("[TempMail] ❌ All providers failed")
+        return None
+    
+    @classmethod
+    def get_code(cls, timeout=30):
+        """Get OTP code using the current provider"""
+        if not cls.current_provider:
+            return None
+        
+        try:
+            # Special handling for different providers
+            if cls.current_provider == Sepuluh:
+                return Sepuluh.get_code(timeout)
+            elif cls.current_provider == TempMailOrg:
+                return TempMailOrg.get_code(cls.current_email, timeout)
+            else:
+                return cls.current_provider.get_code(timeout)
+        except Exception:
+            return None
+    
+    @classmethod
+    def rotate_provider(cls):
+        """Force rotate to next provider"""
+        cls.current_provider_index = (cls.current_provider_index + 1) % len(cls.PROVIDERS)
+        provider_name, provider_class = cls.PROVIDERS[cls.current_provider_index]
+        cls.current_provider = provider_class
+        print(f"[TempMail] 🔄 Rotated to {provider_name}")
 
 
 class GmailAlias:
@@ -6658,7 +7183,7 @@ class Account:
 
     def get_fresh_identity(self) -> Dict[str, Any]:
         """Get fresh IP and fingerprint identity for rate limit evasion"""
-        # Rotate IP
+        # Rotate IP - always generate a completely new identity
         ip_config = self.ip_stealth_system.get_fresh_ip_config()
         self.current_ip_config = ip_config
         self.ip_rotation_count += 1
@@ -6669,26 +7194,46 @@ class Account:
         brand = device_fp.get("brand", "Samsung").lower()
         connection_type = ip_config.get("connection_type", "mobile")
         
-        # Get WebRTC/WebGL fingerprint
+        # Get WebRTC/WebGL fingerprint synchronized with device
         webrtc_webgl_fp = self.webrtc_webgl_spoofer.get_complete_fingerprint("android", brand, connection_type)
+        
+        # Extract headers
+        headers = ip_config.get("headers", {})
         
         identity = {
             "ip_config": ip_config,
             "webrtc_webgl_fingerprint": webrtc_webgl_fp,
             "stealth_script": self.webrtc_webgl_spoofer.get_stealth_injection_script(webrtc_webgl_fp),
-            "headers": ip_config.get("headers", {}),
+            "headers": headers,
             "user_agent": device_fp.get("user_agent", ""),
             "ja3": ip_config.get("fingerprints", {}).get("ja3", ""),
+            "tls": ip_config.get("fingerprints", {}).get("tls", {}),
             "rotation_count": self.ip_rotation_count,
             "timestamp": int(time.time())
         }
         
-        if self.verbose:
-            print(f"🔄 [Account] Fresh identity generated:")
-            print(f"   📍 IP: {ip_config.get('ip')} ({ip_config.get('isp')})")
-            print(f"   📱 Device: {device_fp.get('market_name', 'Unknown')}")
-            print(f"   🔗 Connection: {connection_type}")
-            print(f"   🔢 Rotation: #{self.ip_rotation_count}")
+        # Always print detailed identity info
+        print("\n" + "=" * 60)
+        print("🔐 FRESH IDENTITY GENERATED")
+        print("=" * 60)
+        print(f"   🔢 Rotation Count: #{self.ip_rotation_count}")
+        print(f"   📍 IP Address: {ip_config.get('ip', 'N/A')}")
+        print(f"   🏢 ISP: {ip_config.get('isp', 'Unknown')}")
+        print(f"   📍 Location: {ip_config.get('city', 'Unknown')}, {ip_config.get('region', '')}")
+        print(f"   🌐 Timezone: {ip_config.get('timezone', 'Unknown')}")
+        print(f"   🔗 Connection: {connection_type}")
+        print("-" * 60)
+        print(f"   📱 Brand: {device_fp.get('brand', 'Unknown')}")
+        print(f"   📱 Model: {device_fp.get('model', 'Unknown')}")
+        print(f"   📱 Market Name: {device_fp.get('market_name', 'Unknown')}")
+        print(f"   🤖 Android: {device_fp.get('android_version', 'Unknown')}")
+        print(f"   🌐 User Agent: {device_fp.get('user_agent', 'N/A')[:80]}...")
+        print("-" * 60)
+        print(f"   🖥️ Screen: {webrtc_webgl_fp.get('screen', {}).get('width', 'N/A')}x{webrtc_webgl_fp.get('screen', {}).get('height', 'N/A')}")
+        print(f"   🎨 WebGL Vendor: {webrtc_webgl_fp.get('webgl', {}).get('vendor', 'N/A')[:40]}...")
+        print(f"   🎨 WebGL Renderer: {webrtc_webgl_fp.get('webgl', {}).get('renderer', 'N/A')[:40]}...")
+        print(f"   🔑 JA3: {identity.get('ja3', 'N/A')[:50]}...")
+        print("=" * 60 + "\n")
         
         return identity
 
@@ -7598,7 +8143,7 @@ class Account:
                     pass
 
     async def start_chromium(self, profile_dir: Optional[str] = None) -> bool:
-        """Start Chromium browser menggunakan ChromiumManager"""
+        """Start Chromium browser menggunakan ChromiumManager with full fingerprint integration"""
         
         if self.chromium_started:
             logger.warning("[start_chromium] Chromium already started")
@@ -7614,27 +8159,52 @@ class Account:
             profile_dir = temp_profile_dir  # Override dengan temporary directory
             print(f"[start_chromium] 📁 Using temporary profile: {temp_profile_dir}")
             
-            # Prepare parameters
-            user_agent = self.ua or (self.fp.user_agent() if self.fp else None)
+            # ========== GET FRESH IDENTITY ==========
+            # Generate synchronized fingerprint for this session
+            identity = self.get_fresh_identity()
+            self.session_identity = identity  # Store for session consistency
             
+            ip_config = identity.get("ip_config", {})
+            webrtc_webgl_fp = identity.get("webrtc_webgl_fingerprint", {})
+            device_fp = ip_config.get("device_fingerprint", {})
+            
+            # Get synchronized user agent from identity - ALWAYS use identity UA, never fallback
+            user_agent = identity.get("user_agent") or device_fp.get("user_agent")
+            if not user_agent:
+                # Generate a random mobile user agent if none provided
+                android_versions = ["12", "13", "14"]
+                chrome_versions = ["120", "121", "122", "123", "124", "125"]
+                models = ["SM-G998B", "SM-S908B", "Pixel 7 Pro", "Pixel 8", "POCO F5", "Redmi Note 12"]
+                user_agent = f"Mozilla/5.0 (Linux; Android {random.choice(android_versions)}; {random.choice(models)}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{random.choice(chrome_versions)}.0.0.0 Mobile Safari/537.36"
+            
+            # Get viewport from fingerprint
+            screen_config = webrtc_webgl_fp.get("screen", {})
             viewport = None
-            if self.hb and self.hb.device_profile.get("viewport"):
+            if screen_config and screen_config.get("width"):
+                viewport = {
+                    "width": screen_config.get("width", 1920),
+                    "height": screen_config.get("height", 1080)
+                }
+            elif self.hb and self.hb.device_profile.get("viewport"):
                 vp = self.hb.device_profile.get("viewport")
                 viewport = {"width": vp[0], "height": vp[1]}
             
             if self.verbose:
-                print("[start_chromium] Starting Chromium with:")
-                print(f"  - User Agent: {user_agent[:50] if user_agent else 'Default'}")
-                print(f"  - Viewport: {viewport}")
-                print(f"  - Proxy: {self.bound_proxy[:50] if self.bound_proxy else 'None'}")
+                print("[start_chromium] 🔐 Starting Chromium with SYNCHRONIZED identity:")
+                print(f"  📍 IP: {ip_config.get('ip', 'N/A')} ({ip_config.get('isp', 'Unknown')})")
+                print(f"  📱 Device: {device_fp.get('market_name', device_fp.get('brand', 'Unknown'))}")
+                print(f"  🌐 User Agent: {user_agent[:60] if user_agent else 'Default'}...")
+                print(f"  📺 Viewport: {viewport}")
+                print(f"  🔗 Proxy: {self.bound_proxy[:50] if self.bound_proxy else 'None'}")
+                print(f"  🔢 Identity Rotation: #{self.ip_rotation_count}")
             
             # Create persistent context menggunakan ChromiumManager
             self.browser_context = await self.chromium_manager.new_browser_context(
-                user_agent=None,
-                viewport=None,
+                user_agent=user_agent,
+                viewport=viewport,
                 proxy=self.bound_proxy,
-                locale="en-US",
-                timezone="America/New_York"
+                locale=ip_config.get("locale", "en-US"),
+                timezone=ip_config.get("timezone", "America/New_York")
             )
             
             if not self.browser_context:
@@ -7642,23 +8212,211 @@ class Account:
                 await self._cleanup_directory(temp_profile_dir)
                 return False
             
-            # Add additional stealth scripts
-            await self.browser_context.add_init_script("""
-            Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
-            Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3, 4, 5]});
-            Object.defineProperty(navigator, 'languages', {get: () => ['en-US', 'en']});
-            window.chrome = {runtime: {}};
-            """)
+            # ========== APPLY COMPREHENSIVE STEALTH SCRIPTS ==========
+            stealth_script = identity.get("stealth_script", "")
+            if stealth_script:
+                await self.browser_context.add_init_script(stealth_script)
+                print("[start_chromium] ✅ Comprehensive stealth script injected")
+            
+            # Additional stealth overrides
+            additional_stealth = self._generate_synchronized_stealth_script(identity)
+            await self.browser_context.add_init_script(additional_stealth)
+            
+            # ========== SET SYNCHRONIZED HEADERS ==========
+            headers = identity.get("headers", {})
+            if headers:
+                await self.browser_context.set_extra_http_headers(headers)
+                print(f"[start_chromium] ✅ Synchronized headers set ({len(headers)} headers)")
             
             self.chromium_started = True
             
-            print("[start_chromium] ✅ Chromium started successfully")
+            print("[start_chromium] ✅ Chromium started with FULL fingerprint integration")
             return True
             
         except Exception as e:
             logger.error("[start_chromium] Error: %s", e)
             self.chromium_started = False
             return False
+    
+    def _generate_synchronized_stealth_script(self, identity: Dict[str, Any]) -> str:
+        """Generate stealth script synchronized with identity"""
+        ip_config = identity.get("ip_config", {})
+        webrtc_webgl_fp = identity.get("webrtc_webgl_fingerprint", {})
+        device_fp = ip_config.get("device_fingerprint", {})
+        
+        # Extract values from fingerprint
+        webgl_config = webrtc_webgl_fp.get("webgl", {})
+        screen_config = webrtc_webgl_fp.get("screen", {})
+        canvas_config = webrtc_webgl_fp.get("canvas", {})
+        audio_config = webrtc_webgl_fp.get("audio", {})
+        
+        vendor = webgl_config.get("vendor", "Google Inc. (NVIDIA)")
+        renderer = webgl_config.get("renderer", "ANGLE (NVIDIA GeForce GTX 1660 SUPER)")
+        
+        screen_width = screen_config.get("width", 1920)
+        screen_height = screen_config.get("height", 1080)
+        color_depth = screen_config.get("colorDepth", 24)
+        pixel_ratio = screen_config.get("devicePixelRatio", 1)
+        
+        hardware_concurrency = device_fp.get("hardware_concurrency", random.choice([4, 8, 12, 16]))
+        device_memory = device_fp.get("device_memory", random.choice([4, 8, 16]))
+        
+        # Canvas noise seed for consistency
+        canvas_noise = canvas_config.get("noise", random.uniform(0.0001, 0.001))
+        
+        return f'''
+        // ========== SYNCHRONIZED FINGERPRINT SPOOFING ==========
+        
+        // WebDriver removal
+        Object.defineProperty(navigator, 'webdriver', {{get: () => undefined}});
+        delete navigator.__proto__.webdriver;
+        
+        // Automation flags
+        if (window.navigator.webdriver !== undefined) {{
+            delete window.navigator.webdriver;
+        }}
+        
+        // WebGL Vendor/Renderer spoofing (synchronized)
+        const getParameterProxyHandler = {{
+            apply: function(target, thisArg, args) {{
+                const param = args[0];
+                const gl = thisArg;
+                
+                // UNMASKED_VENDOR_WEBGL
+                if (param === 37445) {{
+                    return "{vendor}";
+                }}
+                // UNMASKED_RENDERER_WEBGL
+                if (param === 37446) {{
+                    return "{renderer}";
+                }}
+                return Reflect.apply(target, thisArg, args);
+            }}
+        }};
+        
+        try {{
+            const canvas = document.createElement('canvas');
+            const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+            if (gl) {{
+                const originalGetParameter = gl.getParameter.bind(gl);
+                gl.getParameter = new Proxy(originalGetParameter, getParameterProxyHandler);
+            }}
+            const gl2 = canvas.getContext('webgl2');
+            if (gl2) {{
+                const originalGetParameter2 = gl2.getParameter.bind(gl2);
+                gl2.getParameter = new Proxy(originalGetParameter2, getParameterProxyHandler);
+            }}
+        }} catch(e) {{}}
+        
+        // Screen properties (synchronized)
+        Object.defineProperty(screen, 'width', {{get: () => {screen_width}}});
+        Object.defineProperty(screen, 'height', {{get: () => {screen_height}}});
+        Object.defineProperty(screen, 'availWidth', {{get: () => {screen_width}}});
+        Object.defineProperty(screen, 'availHeight', {{get: () => {screen_height - 40}}});
+        Object.defineProperty(screen, 'colorDepth', {{get: () => {color_depth}}});
+        Object.defineProperty(screen, 'pixelDepth', {{get: () => {color_depth}}});
+        Object.defineProperty(window, 'devicePixelRatio', {{get: () => {pixel_ratio}}});
+        
+        // Hardware (synchronized)
+        Object.defineProperty(navigator, 'hardwareConcurrency', {{get: () => {hardware_concurrency}}});
+        Object.defineProperty(navigator, 'deviceMemory', {{get: () => {device_memory}}});
+        
+        // Canvas fingerprint protection with consistent noise
+        const originalToDataURL = HTMLCanvasElement.prototype.toDataURL;
+        HTMLCanvasElement.prototype.toDataURL = function(type) {{
+            if (type === 'image/png' || type === undefined) {{
+                const context = this.getContext('2d');
+                if (context) {{
+                    const imageData = context.getImageData(0, 0, this.width, this.height);
+                    const data = imageData.data;
+                    // Apply consistent noise based on seed
+                    for (let i = 0; i < data.length; i += 4) {{
+                        const noise = (Math.sin(i * {canvas_noise}) * 0.5 + 0.5) * 2 - 1;
+                        data[i] = Math.max(0, Math.min(255, data[i] + noise));
+                    }}
+                    context.putImageData(imageData, 0, 0);
+                }}
+            }}
+            return originalToDataURL.apply(this, arguments);
+        }};
+        
+        // Audio fingerprint protection
+        const originalGetChannelData = AudioBuffer.prototype.getChannelData;
+        AudioBuffer.prototype.getChannelData = function(channel) {{
+            const data = originalGetChannelData.call(this, channel);
+            // Add minimal consistent noise
+            for (let i = 0; i < data.length; i += 100) {{
+                data[i] = data[i] + (Math.sin(i * {canvas_noise}) * 0.0001);
+            }}
+            return data;
+        }};
+        
+        // WebRTC IP leak protection
+        const originalRTCPeerConnection = window.RTCPeerConnection;
+        if (originalRTCPeerConnection) {{
+            window.RTCPeerConnection = function(...args) {{
+                const pc = new originalRTCPeerConnection(...args);
+                const originalAddIceCandidate = pc.addIceCandidate.bind(pc);
+                pc.addIceCandidate = function(candidate) {{
+                    if (candidate && candidate.candidate) {{
+                        // Filter out local IP addresses
+                        if (candidate.candidate.includes('typ host')) {{
+                            return Promise.resolve();
+                        }}
+                    }}
+                    return originalAddIceCandidate(candidate);
+                }};
+                return pc;
+            }};
+            window.RTCPeerConnection.prototype = originalRTCPeerConnection.prototype;
+        }}
+        
+        // Chrome runtime mock
+        if (!window.chrome) {{
+            window.chrome = {{}};
+        }}
+        if (!window.chrome.runtime) {{
+            window.chrome.runtime = {{
+                connect: function() {{ return {{}}; }},
+                sendMessage: function() {{}},
+                onMessage: {{ addListener: function() {{}} }}
+            }};
+        }}
+        
+        // Plugins mock
+        Object.defineProperty(navigator, 'plugins', {{
+            get: () => {{
+                const plugins = [
+                    {{ name: 'Chrome PDF Plugin', filename: 'internal-pdf-viewer', description: 'Portable Document Format' }},
+                    {{ name: 'Chrome PDF Viewer', filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai', description: '' }},
+                    {{ name: 'Native Client', filename: 'internal-nacl-plugin', description: '' }}
+                ];
+                plugins.length = 3;
+                return plugins;
+            }}
+        }});
+        
+        // Languages
+        Object.defineProperty(navigator, 'languages', {{get: () => ['en-US', 'en']}});
+        
+        // Permissions API override
+        if (navigator.permissions) {{
+            const originalQuery = navigator.permissions.query;
+            navigator.permissions.query = function(parameters) {{
+                if (parameters.name === 'notifications') {{
+                    return Promise.resolve({{ state: 'prompt', onchange: null }});
+                }}
+                return originalQuery.call(this, parameters);
+            }};
+        }}
+        
+        // Disable battery API
+        if (navigator.getBattery) {{
+            navigator.getBattery = undefined;
+        }}
+        
+        console.log('[Stealth] ✅ Synchronized fingerprint applied');
+        '''
 
     async def stop_chromium(self) -> bool:
         """Stop Chromium browser"""
