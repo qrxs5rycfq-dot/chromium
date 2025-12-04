@@ -3763,15 +3763,14 @@ class ChromeFingerprintSuperRealistic:
     }
     MAC_OS = ["10_15_7", "11_7_10", "12_7_5", "13_6_2", "14_4_1", "15_0"]
     WIN_OS = ["10.0", "11.0"]
-    ANDROID_DEVICES = [
-        ("Android 12", "Pixel 6"),
-        ("Android 13", "Pixel 7"),
-        ("Android 14", "Pixel 8"),
-        ("Android 15", "Pixel 9"),
-    ]
+    # REMOVED ANDROID_DEVICES - desktop only
 
     def __init__(self, os_name: str = "mac", stable: bool = True, seed: Optional[int] = None):
-        self.os_name = os_name.lower()
+        # Force desktop OS - never allow android
+        os_name_lower = os_name.lower()
+        if os_name_lower == "android":
+            os_name_lower = "windows"  # Force to Windows if android requested
+        self.os_name = os_name_lower
         self.stable = stable
         if seed is not None:
             self.seed = int(seed)
@@ -3818,23 +3817,21 @@ class ChromeFingerprintSuperRealistic:
                 return f"Windows NT {v}; Win64; x64"
             if self.os_name == "linux":
                 return "X11; Linux x86_64"
-            if self.os_name == "android":
-                a, d = rng.choice(self.ANDROID_DEVICES)
-                return f"{a}; {d}"
-            return "X11; Linux x86_64"
+            # Default to Windows for any other OS (including android which is blocked in __init__)
+            return "Windows NT 10.0; Win64; x64"
         return self._stable_val("platform_string", gen)
 
     def user_agent(self) -> str:
         def gen(rng):
             cv = self.chrome_version()
             pf = self.platform_string()
-            if self.os_name == "android":
-                return f"Mozilla/5.0 (Linux; {pf}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{cv} Mobile Safari/537.36"
+            # Always desktop user agent - no mobile
             return f"Mozilla/5.0 ({pf}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{cv} Safari/537.36"
         return self._stable_val("user_agent", gen)
 
     def mobile_flag(self) -> bool:
-        return self.os_name == "android"
+        # Always return False - desktop only
+        return False
 
     def platform_label(self) -> str:
         if self.os_name == "mac":
@@ -3843,23 +3840,15 @@ class ChromeFingerprintSuperRealistic:
             return "Windows"
         if self.os_name == "linux":
             return "Linux"
-        if self.os_name == "android":
-            return "Android"
-        return "Unknown"
+        return "Windows"  # Default to Windows
 
     def arch(self) -> Optional[str]:
-        if self.os_name == "android":
-            return None
         return "x86"
 
     def bitness(self) -> Optional[str]:
-        if self.os_name == "android":
-            return None
         return "64"
 
     def model(self) -> Optional[str]:
-        if self.os_name == "android":
-            return self.platform_string().split(";")[-1].strip()
         return None
 
     def revision_id(self) -> str:
