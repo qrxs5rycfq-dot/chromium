@@ -140,12 +140,24 @@ MAX_ERROR_LENGTH = 100
 SLOW_TYPING_THRESHOLD = 30
 
 # ============================================================================
+# ACCOUNT STATUS CODES
+# ============================================================================
+STATUS_PENDING = 0              # Initial state
+STATUS_SUCCESS = 1              # Account created successfully
+STATUS_EMAIL_TAKEN = 2          # Email already registered
+STATUS_OTP_FAILED = 3           # OTP verification failed
+STATUS_ERROR = 4                # General error
+STATUS_SUSPENDED = 5            # Account suspended/disabled
+STATUS_PHONE_REQUIRED = 6       # Phone verification required - close session
+STATUS_OTP_NOT_RECEIVED = 7     # OTP code not received - close session
+
+# ============================================================================
 # ADVANCED IP STEALTH SYSTEM 2025
 # Enhanced IP spoofing with real-time validation and fingerprint generation
-# Ported from bipas6.py with improvements
+# Based on advanced stealth techniques for Indonesian mobile networks
 # ============================================================================
 class AdvancedIPStealthSystem2025:
-    """Sistem IP stealth dinamis 2025 dengan real-time validation dan enhanced spoofing"""
+    """Dynamic IP stealth system 2025 with real-time validation and enhanced spoofing"""
     
     def __init__(self):
         self.ip_pool = []
@@ -291,7 +303,7 @@ class AdvancedIPStealthSystem2025:
                 return False
                 
             return True
-        except:
+        except Exception:
             return False
     
     def _create_ip_profile(self, ip: str, config: Dict[str, Any], isp_name: str, connection_type: str) -> Dict[str, Any]:
@@ -480,11 +492,8 @@ class AdvancedIPStealthSystem2025:
         """Generate enhanced HTTP headers"""
         brand = device_fp.get("brand", "Samsung")
         
-        # Generate sec-ch-ua based on brand
-        if brand == "Samsung":
-            sec_ch_ua = '"Chromium";v="135", "Google Chrome";v="135", "Not-A.Brand";v="99"'
-        else:
-            sec_ch_ua = '"Chromium";v="135", "Google Chrome";v="135", "Not-A.Brand";v="99"'
+        # Generate sec-ch-ua
+        sec_ch_ua = '"Chromium";v="135", "Google Chrome";v="135", "Not-A.Brand";v="99"'
         
         return {
             "User-Agent": device_fp.get("user_agent", ""),
@@ -8399,7 +8408,7 @@ class Account:
                         print(f"   ❌ OTP attempt {otp_attempt + 1} failed")
                         
                         # Check if we need to close session (OTP not received)
-                        if self.status == 7:
+                        if self.status == STATUS_OTP_NOT_RECEIVED:
                             print("   🚫 OTP code not received - IMMEDIATELY closing session")
                             print("   ⏹️ Session closed. Please start a new session with fresh fingerprint/IP")
                             # Immediately close session and return - no retry with same session
@@ -8408,12 +8417,12 @@ class Account:
                                     await page.close()
                                 await self.stop_chromium()
                                 await self._cleanup_chromium_profiles()
-                            except:
+                            except Exception:
                                 pass
                             return self._return_data()
                         
                         # Check if phone verification required - close session
-                        if self.status == 6:
+                        if self.status == STATUS_PHONE_REQUIRED:
                             print("   📱 Phone verification required - IMMEDIATELY closing session")
                             print("   ⏹️ Session closed. Please start a new session with different identity")
                             # Immediately close session and return - need different approach
@@ -8422,7 +8431,7 @@ class Account:
                                     await page.close()
                                 await self.stop_chromium()
                                 await self._cleanup_chromium_profiles()
-                            except:
+                            except Exception:
                                 pass
                             return self._return_data()
                         
@@ -12103,7 +12112,7 @@ class Account:
                 if not otp_code:
                     print("   ❌ Could not retrieve OTP code - closing session for new attempt")
                     # Return special status to indicate OTP not received - need new session
-                    self.status = 7  # New status: OTP_NOT_RECEIVED
+                    self.status = STATUS_OTP_NOT_RECEIVED
                     return False
                 
                 print(f"   ✅ OTP Code received: {otp_code}")
@@ -12183,7 +12192,7 @@ class Account:
                     if await self._is_phone_verification_page(page):
                         print("   📱 Phone verification required - closing session immediately")
                         print("   🔄 Will create new session with fresh account")
-                        self.status = 6  # Status for phone required
+                        self.status = STATUS_PHONE_REQUIRED
                         try:
                             await page.close()
                         except Exception:
@@ -12205,7 +12214,7 @@ class Account:
                         elif recovery_result == 'phone_required':
                             print("   📱 Phone verification required - closing session")
                             print("   🔄 Will create new session with fresh account")
-                            self.status = 6  # Status for phone required
+                            self.status = STATUS_PHONE_REQUIRED
                             # Close current page/context to force new session
                             try:
                                 await page.close()
