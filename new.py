@@ -15147,27 +15147,58 @@ class Account:
             print(f"   ⚠️ Warmup error (continuing anyway): {e}")
             return False
 
-    async def _wait_for_instagram_ready(self, page, timeout: int = 15) -> bool:
-        """Wait for Instagram page to be fully loaded (logo, form elements)"""
+    async def _wait_for_instagram_ready(self, page, timeout: int = 30) -> bool:
+        """Wait for Instagram page to be fully loaded (no loading spinner, form elements visible)"""
         try:
             print("   ⏳ Waiting for Instagram to fully load...")
             start_time = asyncio.get_event_loop().time()
             
+            # First, wait for page to finish loading
+            try:
+                await page.wait_for_load_state("networkidle", timeout=10000)
+                print("   ✅ Network idle")
+            except Exception:
+                pass
+            
+            # Wait for any loading spinners to disappear
+            loading_selectors = [
+                '[role="progressbar"]',
+                'svg[aria-label*="Loading"]',
+                '[class*="spinner"]',
+                '[class*="loading"]',
+                'circle[stroke-dasharray]',  # SVG loading spinner
+            ]
+            
+            for selector in loading_selectors:
+                try:
+                    loading_el = await page.query_selector(selector)
+                    if loading_el:
+                        print(f"   ⏳ Waiting for loading indicator to disappear...")
+                        await page.wait_for_selector(selector, state="hidden", timeout=10000)
+                        print(f"   ✅ Loading complete")
+                        break
+                except Exception:
+                    pass
+            
+            # Now wait for form elements to appear
             while (asyncio.get_event_loop().time() - start_time) < timeout:
-                # Check for Instagram logo or key elements
-                ready_indicators = [
-                    'img[alt*="Instagram" i]',
-                    'svg[aria-label*="Instagram" i]',
+                # Check for form elements - these indicate the page is ready for interaction
+                form_indicators = [
                     'input[name="emailOrPhone"]',
+                    'input[name="email"]',
                     'input[name="password"]',
                     'input[aria-label*="email" i]',
                     'input[aria-label*="phone" i]',
+                    'input[placeholder*="email" i]',
+                    'input[placeholder*="phone" i]',
+                    'input[placeholder*="Mobile" i]',
                     'button:has-text("Sign up")',
-                    'button:has-text("Log in")',
+                    'button:has-text("Next")',
+                    'button[type="submit"]',
                 ]
                 
                 elements_found = 0
-                for selector in ready_indicators:
+                for selector in form_indicators:
                     try:
                         el = await page.query_selector(selector)
                         if el and await el.is_visible():
@@ -15175,12 +15206,14 @@ class Account:
                     except Exception:
                         continue
                 
-                # Need at least 2 elements to confirm page is ready
-                if elements_found >= 2:
-                    print(f"   ✅ Instagram ready ({elements_found} elements found)")
+                # Need at least 1 form element to confirm page is ready
+                if elements_found >= 1:
+                    print(f"   ✅ Instagram ready ({elements_found} form elements found)")
+                    # Extra wait for stability
+                    await asyncio.sleep(1)
                     return True
                 
-                await asyncio.sleep(1)
+                await asyncio.sleep(0.5)
             
             print("   ⚠️ Instagram ready check timeout (continuing anyway)")
             return False
