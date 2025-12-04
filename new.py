@@ -8013,6 +8013,36 @@ class Account:
                     self.status = 2
                     return True
             
+            # ========== VERIFY ALL FIELDS ARE FILLED BEFORE SUBMIT ==========
+            print("   🔍 Verifying all fields are filled before submit...")
+            verification_result = await self._verify_all_fields_filled_before_submit(page, detected_fields, has_birthday)
+            
+            if not verification_result['all_filled']:
+                print(f"   ⚠️ Some fields not filled properly: {verification_result['unfilled_fields']}")
+                # Try to refill unfilled fields
+                for field_type in verification_result['unfilled_fields']:
+                    print(f"   🔄 Retrying to fill {field_type}...")
+                    if field_type == 'email' and detected_fields.get('email'):
+                        await self._fill_field_dynamically(detected_fields['email'], email, 'email')
+                    elif field_type == 'password' and detected_fields.get('password'):
+                        await self._fill_field_dynamically(detected_fields['password'], password, 'password')
+                    elif field_type == 'username' and detected_fields.get('username'):
+                        await self._fill_field_dynamically(detected_fields['username'], username, 'username')
+                    elif field_type == 'fullname' and detected_fields.get('fullname'):
+                        await self._fill_field_dynamically(detected_fields['fullname'], full_name, 'fullname')
+                    elif field_type in ['month', 'day', 'year'] and has_birthday:
+                        print(f"   🎂 Retrying birthday fill for {field_type}...")
+                        await self._fill_birthday_fields_v3(page, birth_year, birth_month, birth_day, "retry")
+                
+                # Verify again after retry
+                verification_result = await self._verify_all_fields_filled_before_submit(page, detected_fields, has_birthday)
+                if verification_result['all_filled']:
+                    print("   ✅ All fields now filled after retry!")
+                else:
+                    print(f"   ⚠️ Still unfilled after retry: {verification_result['unfilled_fields']}")
+            else:
+                print("   ✅ All fields verified as filled!")
+            
             # ========== CLICK SUBMIT/NEXT BUTTON ==========
             print("   🔘 Looking for submit button...")
             
@@ -8043,6 +8073,95 @@ class Account:
         
         print("   ❌ Max steps reached without completing form")
         return False
+    
+    async def _verify_all_fields_filled_before_submit(self, page, detected_fields: Dict, has_birthday: bool) -> Dict:
+        """
+        Verify that all detected form fields are properly filled before submitting.
+        Returns a dict with 'all_filled' bool and 'unfilled_fields' list.
+        """
+        result = {
+            'all_filled': True,
+            'unfilled_fields': [],
+            'field_values': {}
+        }
+        
+        try:
+            # Check standard input fields
+            for field_type, element in detected_fields.items():
+                if field_type in ['month', 'day', 'year']:
+                    continue  # Check birthday fields separately
+                
+                if element is None:
+                    continue
+                
+                try:
+                    # Get current value
+                    tag_name = await element.evaluate("el => el.tagName.toLowerCase()")
+                    
+                    if tag_name in ['input', 'textarea']:
+                        value = await element.evaluate("el => el.value")
+                    else:
+                        value = await element.text_content() or ""
+                    
+                    result['field_values'][field_type] = value
+                    
+                    # Check if field is empty
+                    if not value or not value.strip():
+                        result['all_filled'] = False
+                        result['unfilled_fields'].append(field_type)
+                        print(f"      ⚠️ {field_type}: EMPTY")
+                    else:
+                        # Truncate for display
+                        display_val = value[:20] + "..." if len(value) > 20 else value
+                        print(f"      ✓ {field_type}: '{display_val}'")
+                        
+                except Exception as e:
+                    print(f"      ⚠️ {field_type}: check failed - {str(e)[:50]}")
+            
+            # Check birthday fields if present
+            if has_birthday:
+                birthday_selectors = [
+                    ('month', 'select[name*="month" i], select[aria-label*="month" i], [role="combobox"][aria-label*="month" i]'),
+                    ('day', 'select[name*="day" i], select[aria-label*="day" i], [role="combobox"][aria-label*="day" i]'),
+                    ('year', 'select[name*="year" i], select[aria-label*="year" i], [role="combobox"][aria-label*="year" i]')
+                ]
+                
+                for field_type, selector in birthday_selectors:
+                    try:
+                        element = await page.query_selector(selector)
+                        if element and await element.is_visible():
+                            tag_name = await element.evaluate("el => el.tagName.toLowerCase()")
+                            
+                            if tag_name == 'select':
+                                # For select elements, check selected option
+                                selected_value = await element.evaluate("""
+                                    el => {
+                                        const opt = el.options[el.selectedIndex];
+                                        return opt ? opt.value || opt.text : '';
+                                    }
+                                """)
+                            else:
+                                # For combobox, get text content
+                                selected_value = await element.text_content() or ""
+                            
+                            result['field_values'][field_type] = selected_value
+                            
+                            # Check if a valid option is selected (not empty, not placeholder)
+                            if not selected_value or selected_value.strip() == "" or selected_value == "0":
+                                result['all_filled'] = False
+                                result['unfilled_fields'].append(field_type)
+                                print(f"      ⚠️ {field_type}: NOT SELECTED")
+                            else:
+                                print(f"      ✓ {field_type}: '{selected_value}'")
+                                
+                    except Exception as e:
+                        print(f"      ⚠️ {field_type}: birthday check failed - {str(e)[:50]}")
+            
+            return result
+            
+        except Exception as e:
+            print(f"   ⚠️ Field verification error: {e}")
+            return result
     
     async def _detect_birthday_fields_comprehensive(self, page) -> Dict[str, Any]:
         """
@@ -8371,8 +8490,19 @@ class Account:
     async def _check_for_form_errors(self, page) -> Optional[str]:
         """
         Check for form validation errors on the page.
+        Excludes false positives from birthday field labels.
         """
         try:
+            # Words to skip - these are not errors, just field labels
+            skip_words = [
+                'month', 'day', 'year', 'january', 'february', 'march', 'april',
+                'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december',
+                'bulan', 'hari', 'tahun', 'januari', 'februari', 'maret', 'april', 'mei', 'juni',
+                'juli', 'agustus', 'september', 'oktober', 'november', 'desember',
+                'select', 'choose', 'pilih', 'birthday', 'password', 'username', 'email',
+                'full name', 'nama lengkap'
+            ]
+            
             error_selectors = [
                 '[aria-invalid="true"]',
                 '[class*="error"]',
@@ -8386,6 +8516,19 @@ class Account:
                     if await element.is_visible():
                         text = await element.text_content()
                         if text and text.strip():
+                            text_lower = text.strip().lower()
+                            
+                            # Skip if text is just a field label or month name
+                            is_label = any(skip_word in text_lower for skip_word in skip_words)
+                            
+                            # Also skip if it's just a short word (likely a label)
+                            if len(text.strip()) < 20 and is_label:
+                                continue
+                            
+                            # Skip if text matches pattern like "MonthJanuary" (combobox display)
+                            if re.match(r'^(Month|Day|Year|Bulan|Hari|Tahun)', text.strip()):
+                                continue
+                            
                             return text.strip()[:MAX_ERROR_LENGTH]
             
             return None
@@ -10449,12 +10592,10 @@ class Account:
                 print("   🔄 Retrieving OTP code...")
                 otp_code = await self.get_otp_from_email(email)
                 if not otp_code:
-                    print("   ❌ Could not retrieve OTP code")
-                    if retry_count < max_retries:
-                        retry_count += 1
-                        continue
-                    else:
-                        return False
+                    print("   ❌ Could not retrieve OTP code - closing session for new attempt")
+                    # Return special status to indicate OTP not received - need new session
+                    self.status = 7  # New status: OTP_NOT_RECEIVED
+                    return False
                 
                 print(f"   ✅ OTP Code received: {otp_code}")
 
@@ -10784,36 +10925,90 @@ class Account:
         """Check if we're successfully on Instagram home page"""
         try:
             # Check URL pattern for home page
-            current_url = page.url
-            if ("instagram.com" in current_url and 
-                "/accounts/login" not in current_url and 
-                "/challenge" not in current_url and
-                "/add" not in current_url):
-                
-                # Check for home page indicators
-                home_indicators = [
-                    'nav[role="navigation"]',
-                    'header section',
-                    'div[role="dialog"]',  # Stories dialog
-                    'a[href*="/direct/inbox"]',
-                    'svg[aria-label="Home"]',
-                    'a[href="/"]'
-                ]
-                
-                for indicator in home_indicators:
-                    if await page.query_selector(indicator):
+            current_url = page.url.lower()
+            
+            # STRICT CHECK: These URLs are definitely NOT home page
+            not_home_patterns = [
+                '/accounts/login',
+                '/accounts/emailsignup',
+                '/accounts/signup',
+                '/accounts/password',
+                '/accounts/suspended',
+                '/accounts/disabled',
+                '/challenge',
+                '/add',
+                'confirm',
+                'verification',
+                'onetap'
+            ]
+            
+            # If URL contains any of these patterns, NOT on home
+            for pattern in not_home_patterns:
+                if pattern in current_url:
+                    return False
+            
+            # Must be on instagram.com
+            if "instagram.com" not in current_url:
+                return False
+            
+            # Home page should be at root or specific sections
+            home_url_patterns = [
+                'instagram.com/$',  # Exact root
+                'instagram.com/?',  # Root with query params
+                'instagram.com/explore',
+                'instagram.com/direct',
+                'instagram.com/reels',
+            ]
+            
+            is_home_url = any(pattern.rstrip('$') in current_url for pattern in home_url_patterns)
+            
+            # Also check for profile URL pattern (username page after signup)
+            # instagram.com/username (no slashes after username except for trailing)
+            if re.match(r'https?://(?:www\.)?instagram\.com/[a-zA-Z0-9_.]+/?$', current_url):
+                is_home_url = True
+            
+            if not is_home_url:
+                # Check if it's the root domain
+                parsed = urlparse(current_url)
+                if parsed.path in ['/', ''] or parsed.path.startswith('/?'):
+                    is_home_url = True
+            
+            if not is_home_url:
+                return False
+            
+            # Check for home page indicators (UI elements)
+            home_indicators = [
+                'nav[role="navigation"]',
+                'a[href*="/direct/inbox"]',
+                'svg[aria-label="Home"]',
+                'svg[aria-label="Beranda"]',  # Indonesian
+                'a[href="/"]',
+                'a[href="/explore/"]',
+            ]
+            
+            for indicator in home_indicators:
+                try:
+                    element = await page.query_selector(indicator)
+                    if element and await element.is_visible():
+                        print(f"   ✅ Home page confirmed via: {indicator}")
                         return True
-                
-                # Additional check for feed content
-                feed_selectors = [
-                    'article',
-                    'div[role="button"] svg[aria-label*="Like"]',
-                    'section main'
-                ]
-                
-                for selector in feed_selectors:
-                    if await page.query_selector(selector):
+                except Exception:
+                    continue
+            
+            # Additional check for feed content (only if URL looks like home)
+            feed_selectors = [
+                'article',
+                'main[role="main"]',
+                'section main',
+            ]
+            
+            for selector in feed_selectors:
+                try:
+                    element = await page.query_selector(selector)
+                    if element:
                         return True
+                except Exception:
+                    continue
             
             return False
         except Exception as e:
