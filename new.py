@@ -10993,6 +10993,14 @@ class Account:
                 current_url = page.url.lower()
                 print(f"   🔗 URL: {current_url}")
                 
+                # Take screenshot for debugging every step
+                try:
+                    screenshot_path = f"./debug_recovery_step_{step + 1}.png"
+                    await page.screenshot(path=screenshot_path)
+                    print(f"   📸 Screenshot saved: {screenshot_path}")
+                except Exception as e:
+                    print(f"   ⚠️ Screenshot failed: {e}")
+                
                 # Check if we reached home page = SUCCESS
                 if await self._is_on_home_page(page):
                     print("   🎉 Recovery SUCCESS: Reached home page!")
@@ -11031,13 +11039,45 @@ class Account:
                 # Check for "Confirm you're human" / human verification page
                 if await self._is_human_confirmation_suspend_page(page):
                     print("   👤 Human confirmation page detected")
+                    
+                    # Debug: List all buttons on the page
+                    print("   🔍 Searching for buttons on page...")
+                    all_buttons = await page.query_selector_all('button, [role="button"], a, div[tabindex="0"]')
+                    print(f"   📊 Found {len(all_buttons)} clickable elements")
+                    
+                    for i, btn in enumerate(all_buttons[:10]):  # Show first 10
+                        try:
+                            text = (await btn.text_content() or "").strip()[:50]
+                            is_visible = await btn.is_visible()
+                            tag = await btn.evaluate("(el) => el.tagName")
+                            print(f"      [{i}] {tag}: '{text}' (visible: {is_visible})")
+                        except Exception:
+                            pass
+                    
                     clicked = await self._click_continue_button(page)
                     if clicked:
                         print("   ✅ Clicked Continue/Selanjutnya button")
                         await asyncio.sleep(2)
                         continue
                     else:
-                        print("   ⚠️ Could not find Continue button")
+                        print("   ⚠️ Could not find Continue button, trying alternative strategies...")
+                        
+                        # Strategy 1: Try clicking any visible button
+                        for btn in all_buttons:
+                            try:
+                                is_visible = await btn.is_visible()
+                                if is_visible:
+                                    text = (await btn.text_content() or "").strip().lower()
+                                    # Skip known bad buttons
+                                    if any(skip in text for skip in ['log in', 'masuk', 'help', 'bantuan', 'back', 'kembali']):
+                                        continue
+                                    await btn.click()
+                                    print(f"   ✅ Clicked fallback button: '{text[:30]}'")
+                                    await asyncio.sleep(2)
+                                    break
+                            except Exception:
+                                continue
+                        continue
                 
                 # Try to find and click any Continue/Next button
                 clicked = await self._click_continue_button(page)
@@ -11058,6 +11098,23 @@ class Account:
                             continue
                         except Exception:
                             pass
+                    
+                    # Try clicking any link that looks like an action
+                    links = await page.query_selector_all('a')
+                    for link in links:
+                        try:
+                            is_visible = await link.is_visible()
+                            href = await link.get_attribute('href') or ''
+                            text = (await link.text_content() or '').strip().lower()
+                            
+                            if is_visible and href and not any(skip in text for skip in ['help', 'bantuan', 'privacy', 'terms']):
+                                if 'instagram' in href or href.startswith('/'):
+                                    print(f"   🔗 Trying link: {text[:30]} -> {href[:50]}")
+                                    await link.click()
+                                    await asyncio.sleep(2)
+                                    break
+                        except Exception:
+                            continue
                 
                 # No progress made
                 print("   ⏳ Waiting for page update...")
