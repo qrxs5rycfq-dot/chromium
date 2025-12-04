@@ -18,6 +18,7 @@ import brotli
 import html
 import math
 import urllib3
+import ipaddress
 import atexit
 import traceback
 import secrets
@@ -137,6 +138,878 @@ MAX_ERROR_LENGTH = 100
 
 # Threshold for using slow typing (characters)
 SLOW_TYPING_THRESHOLD = 30
+
+# ============================================================================
+# ADVANCED IP STEALTH SYSTEM 2025
+# Enhanced IP spoofing with real-time validation and fingerprint generation
+# Ported from bipas6.py with improvements
+# ============================================================================
+class AdvancedIPStealthSystem2025:
+    """Sistem IP stealth dinamis 2025 dengan real-time validation dan enhanced spoofing"""
+    
+    def __init__(self):
+        self.ip_pool = []
+        self.current_ip = None
+        self.last_rotation = 0
+        self.rotation_interval = 300  # 5 minutes
+        self.validator = IPValidator2025()
+        
+        # Indonesian ISP configurations
+        self.isp_configs = {
+            "telkomsel": {
+                "prefixes": ["110.136", "110.137", "114.122", "114.125", "112.215", "182.253"],
+                "cities": ["Jakarta", "Surabaya", "Bandung", "Medan", "Bali", "Semarang", "Makassar"],
+                "asn": "AS23693",
+                "as_name": "Telkomsel",
+                "ttl_range": (54, 64),
+                "window_range": (32768, 65535),
+                "mss_range": (1360, 1460),
+                "packet_loss": (0.0, 0.5)
+            },
+            "indosat": {
+                "prefixes": ["114.120", "114.121", "114.122", "36.68", "36.69", "36.71"],
+                "cities": ["Jakarta", "Surabaya", "Bandung", "Yogyakarta", "Semarang", "Palembang"],
+                "asn": "AS4761",
+                "as_name": "Indosat Ooredoo",
+                "ttl_range": (52, 64),
+                "window_range": (32768, 65535),
+                "mss_range": (1380, 1460),
+                "packet_loss": (0.0, 0.8)
+            },
+            "xl": {
+                "prefixes": ["36.85", "36.86", "36.87", "36.88", "118.97", "118.98"],
+                "cities": ["Jakarta", "Surabaya", "Bandung", "Medan", "Tangerang", "Bekasi"],
+                "asn": "AS24203",
+                "as_name": "XL Axiata",
+                "ttl_range": (52, 64),
+                "window_range": (32768, 65535),
+                "mss_range": (1360, 1460),
+                "packet_loss": (0.0, 0.6)
+            },
+            "tri": {
+                "prefixes": ["116.206", "116.207", "114.5", "114.6", "180.244", "180.245"],
+                "cities": ["Jakarta", "Surabaya", "Bandung", "Yogyakarta", "Depok"],
+                "asn": "AS45727",
+                "as_name": "Tri Indonesia",
+                "ttl_range": (52, 64),
+                "window_range": (32768, 65535),
+                "mss_range": (1360, 1460),
+                "packet_loss": (0.0, 0.7)
+            },
+            "smartfren": {
+                "prefixes": ["202.67", "202.68", "112.198", "112.199"],
+                "cities": ["Jakarta", "Surabaya", "Bandung", "Tangerang"],
+                "asn": "AS18004",
+                "as_name": "Smartfren Telecom",
+                "ttl_range": (52, 64),
+                "window_range": (32768, 65535),
+                "mss_range": (1360, 1460),
+                "packet_loss": (0.0, 0.5)
+            },
+            "biznet": {
+                "prefixes": ["103.23", "103.24", "112.78", "180.251"],
+                "cities": ["Jakarta", "Surabaya", "Bandung", "Bali"],
+                "asn": "AS17451",
+                "as_name": "Biznet Networks",
+                "ttl_range": (58, 64),
+                "window_range": (65535, 65535),
+                "mss_range": (1440, 1460),
+                "packet_loss": (0.0, 0.2)
+            }
+        }
+        
+        # City coordinates
+        self.city_coordinates = {
+            "Jakarta": {"lat": -6.2088, "lon": 106.8456},
+            "Surabaya": {"lat": -7.2575, "lon": 112.7521},
+            "Bandung": {"lat": -6.9175, "lon": 107.6191},
+            "Medan": {"lat": 3.5952, "lon": 98.6722},
+            "Bali": {"lat": -8.4095, "lon": 115.1889},
+            "Makassar": {"lat": -5.1477, "lon": 119.4327},
+            "Semarang": {"lat": -6.9667, "lon": 110.4167},
+            "Palembang": {"lat": -2.9909, "lon": 104.7566},
+            "Yogyakarta": {"lat": -7.7956, "lon": 110.3695},
+            "Tangerang": {"lat": -6.1783, "lon": 106.6319},
+            "Bekasi": {"lat": -6.2383, "lon": 106.9756},
+            "Depok": {"lat": -6.4025, "lon": 106.7942}
+        }
+        
+    def get_fresh_ip_config(self) -> Dict[str, Any]:
+        """Get fresh IP configuration with full spoofing data"""
+        # Select random ISP
+        isp_name = random.choice(list(self.isp_configs.keys()))
+        config = self.isp_configs[isp_name]
+        
+        # Generate IP
+        ip = self._generate_valid_ip(isp_name, config)
+        
+        # Determine connection type
+        connection_type = random.choice(["mobile", "wifi"]) if isp_name in ["telkomsel", "indosat", "xl", "tri", "smartfren"] else "wifi"
+        
+        # Create full IP profile
+        return self._create_ip_profile(ip, config, isp_name, connection_type)
+    
+    def _generate_valid_ip(self, isp_name: str, config: Dict[str, Any]) -> str:
+        """Generate valid Indonesian IP"""
+        prefix = random.choice(config["prefixes"])
+        prefix_parts = prefix.split('.')
+        
+        while len(prefix_parts) < 4:
+            prefix_parts.append(str(random.randint(2, 253)))
+        
+        ip = '.'.join(prefix_parts[:4])
+        
+        # Validate IP
+        if not self._validate_ip(ip):
+            # Regenerate with safer values
+            ip = f"{prefix}.{random.randint(10, 240)}.{random.randint(10, 240)}"
+            
+        return ip
+    
+    def _validate_ip(self, ip: str) -> bool:
+        """Validate IP address is not reserved"""
+        try:
+            parts = ip.split('.')
+            if len(parts) != 4:
+                return False
+            
+            for part in parts:
+                num = int(part)
+                if num < 0 or num > 255:
+                    return False
+            
+            ip_obj = ipaddress.ip_address(ip)
+            
+            # Check not reserved
+            if ip_obj.is_private or ip_obj.is_reserved or ip_obj.is_loopback:
+                return False
+            if ip_obj.is_multicast or ip_obj.is_link_local:
+                return False
+            
+            # Check not suspicious pattern
+            if ip.endswith('.0') or ip.endswith('.255') or ip.endswith('.1'):
+                return False
+                
+            return True
+        except:
+            return False
+    
+    def _create_ip_profile(self, ip: str, config: Dict[str, Any], isp_name: str, connection_type: str) -> Dict[str, Any]:
+        """Create comprehensive IP profile"""
+        city = random.choice(config["cities"])
+        city_coords = self.city_coordinates.get(city, {"lat": -6.2088, "lon": 106.8456})
+        
+        # Network metrics based on connection type
+        if connection_type == "mobile":
+            latency = random.uniform(15, 45)
+            jitter = random.uniform(2, 10)
+            signal_strength = random.randint(-70, -50)
+            bandwidth = random.uniform(10, 100)
+            network_type = random.choice(["4G", "5G", "LTE"])
+        else:
+            latency = random.uniform(5, 20)
+            jitter = random.uniform(1, 5)
+            signal_strength = random.randint(-40, -20)
+            bandwidth = random.uniform(50, 500)
+            network_type = "WiFi"
+        
+        # Generate device fingerprint
+        device_fingerprint = self._generate_device_fingerprint(isp_name, connection_type)
+        
+        # Generate JA3 fingerprint
+        ja3, ja3s = self._generate_ja3_fingerprint(connection_type)
+        
+        # Generate TLS fingerprint
+        tls_fingerprint = self._generate_tls_fingerprint(connection_type)
+        
+        return {
+            "ip": ip,
+            "type": "residential",
+            "isp": isp_name,
+            "asn": config["asn"],
+            "as_name": config.get("as_name", isp_name.upper()),
+            "connection_type": connection_type,
+            "network_type": network_type,
+            "location": {
+                "city": city,
+                "country": "Indonesia",
+                "country_code": "ID",
+                "latitude": round(city_coords["lat"] + random.uniform(-0.01, 0.01), 6),
+                "longitude": round(city_coords["lon"] + random.uniform(-0.01, 0.01), 6),
+                "timezone": "Asia/Jakarta",
+                "carrier": isp_name.upper() if connection_type == "mobile" else "WiFi",
+                "mcc": "510",
+                "mnc": self._get_mnc(isp_name) if connection_type == "mobile" else ""
+            },
+            "network_metrics": {
+                "latency_ms": round(latency, 2),
+                "jitter_ms": round(jitter, 2),
+                "packet_loss_percent": round(random.uniform(*config["packet_loss"]), 2),
+                "bandwidth_mbps": round(bandwidth, 2),
+                "signal_strength": signal_strength
+            },
+            "tcp_parameters": {
+                "ttl": random.randint(*config["ttl_range"]),
+                "window_size": random.randint(*config["window_range"]),
+                "mss": random.randint(*config["mss_range"]),
+                "sack_permitted": random.choice([True, False]),
+                "window_scaling": random.randint(0, 14),
+                "timestamps": True
+            },
+            "device_fingerprint": device_fingerprint,
+            "fingerprints": {
+                "ja3": ja3,
+                "ja3s": ja3s,
+                "tls": tls_fingerprint,
+                "http2": self._generate_http2_settings(),
+                "akamai": self._generate_akamai_fingerprint(),
+                "cloudflare": self._generate_cloudflare_fingerprint()
+            },
+            "headers": self._generate_enhanced_headers(device_fingerprint, connection_type),
+            "timestamp": int(time.time()),
+            "health_score": random.randint(85, 98),
+            "session_id": f"ip_{int(time.time())}_{random.randint(1000, 9999)}"
+        }
+    
+    def _get_mnc(self, isp: str) -> str:
+        """Get Mobile Network Code for ISP"""
+        mnc_map = {
+            "telkomsel": "10",
+            "indosat": "01",
+            "xl": "11",
+            "tri": "89",
+            "smartfren": "07"
+        }
+        return mnc_map.get(isp, "10")
+    
+    def _generate_device_fingerprint(self, isp: str, connection_type: str) -> Dict[str, Any]:
+        """Generate device fingerprint based on connection type"""
+        if connection_type == "mobile":
+            devices = [
+                {"brand": "Samsung", "model": "SM-S928B", "market_name": "Galaxy S24 Ultra", 
+                 "android_version": "14", "screen_resolution": "1440x3120", "dpi": 510},
+                {"brand": "Samsung", "model": "SM-S921B", "market_name": "Galaxy S24",
+                 "android_version": "14", "screen_resolution": "1080x2340", "dpi": 425},
+                {"brand": "Xiaomi", "model": "23116PN5BC", "market_name": "Xiaomi 14 Pro",
+                 "android_version": "14", "screen_resolution": "1440x3200", "dpi": 522},
+                {"brand": "OPPO", "model": "CPH2557", "market_name": "Reno 10 Pro+",
+                 "android_version": "14", "screen_resolution": "1240x2772", "dpi": 450},
+                {"brand": "vivo", "model": "V2303A", "market_name": "X100 Pro",
+                 "android_version": "14", "screen_resolution": "1260x2800", "dpi": 460}
+            ]
+        else:
+            devices = [
+                {"brand": "Samsung", "model": "SM-X916B", "market_name": "Galaxy Tab S9 Ultra",
+                 "android_version": "14", "screen_resolution": "2960x1848", "dpi": 239},
+                {"brand": "Lenovo", "model": "TB370FU", "market_name": "Tab P12 Pro",
+                 "android_version": "13", "screen_resolution": "2560x1600", "dpi": 280}
+            ]
+        
+        device = random.choice(devices)
+        chrome_version = random.choice(["130.0.0.0", "131.0.0.0", "132.0.0.0", "133.0.0.0", "134.0.0.0", "135.0.0.0"])
+        
+        return {
+            **device,
+            "chrome_version": chrome_version,
+            "user_agent": f"Mozilla/5.0 (Linux; Android {device['android_version']}; {device['model']}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{chrome_version} Mobile Safari/537.36",
+            "build_id": f"UP1A.{random.randint(230000, 241000)}.{random.randint(1, 999):03d}",
+            "device_id": hashlib.md5(f"{device['model']}{time.time()}{random.random()}".encode()).hexdigest()[:16],
+            "android_id": ''.join(random.choices('0123456789abcdef', k=16))
+        }
+    
+    def _generate_ja3_fingerprint(self, connection_type: str) -> Tuple[str, str]:
+        """Generate JA3 and JA3S fingerprint"""
+        if connection_type == "mobile":
+            ja3 = "771,4865-4866-4867-49195-49199-49196-49200-52393-52392-49171-49172-156-157-47-53-65037-65038-65039,0-23-65281-10-11-35-16-5-13-18-51-45-43-27-17513-21-65041-65042,29-23-24-25-26,0"
+            ja3s = "771,4865,65281-0-23-13-5-18-16-11-51-45-43-10-21,29-23-24,0"
+        else:
+            ja3 = "771,4865-4866-4867-49195-49199-49196-49200-52393-52392-49171-49172-156-157-47-53,0-23-65281-10-11-35-16-5-13-18-51-45-43-27-17513-21,29-23-24-25,0"
+            ja3s = "771,4865,65281-0-23-13-5-18-16-11-51-45-43-10-21,29-23-24,0"
+        
+        return ja3, ja3s
+    
+    def _generate_tls_fingerprint(self, connection_type: str) -> Dict[str, Any]:
+        """Generate TLS fingerprint"""
+        return {
+            "version": "TLSv1.3",
+            "ciphers": [
+                "TLS_AES_128_GCM_SHA256",
+                "TLS_AES_256_GCM_SHA384",
+                "TLS_CHACHA20_POLY1305_SHA256",
+                "TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256",
+                "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256"
+            ],
+            "extensions": [
+                "server_name", "supported_groups", "signature_algorithms",
+                "application_layer_protocol_negotiation", "signed_certificate_timestamp",
+                "key_share", "psk_key_exchange_modes", "supported_versions",
+                "compress_certificate", "delegated_credentials"
+            ],
+            "supported_groups": ["x25519", "secp256r1", "secp384r1"],
+            "signature_algorithms": ["ecdsa_secp256r1_sha256", "rsa_pss_rsae_sha256", "rsa_pkcs1_sha256"],
+            "alpn": ["h2", "http/1.1"]
+        }
+    
+    def _generate_http2_settings(self) -> Dict[str, Any]:
+        """Generate HTTP/2 settings"""
+        return {
+            "HEADER_TABLE_SIZE": 65536,
+            "MAX_CONCURRENT_STREAMS": 1000,
+            "INITIAL_WINDOW_SIZE": 6291456,
+            "MAX_HEADER_LIST_SIZE": 262144,
+            "ENABLE_PUSH": 0
+        }
+    
+    def _generate_akamai_fingerprint(self) -> Dict[str, Any]:
+        """Generate Akamai fingerprint"""
+        return {
+            "bot_detection_bypass": True,
+            "sensor_data": hashlib.sha256(f"{time.time()}{random.random()}".encode()).hexdigest()[:32],
+            "abck_cookie": f"~-1~-1~-1~{random.randint(100000, 999999)}"
+        }
+    
+    def _generate_cloudflare_fingerprint(self) -> Dict[str, Any]:
+        """Generate Cloudflare fingerprint"""
+        return {
+            "turnstile_bypass": True,
+            "ray_id": ''.join(random.choices('0123456789abcdef', k=16)),
+            "challenge_token": hashlib.sha256(f"{time.time()}{random.random()}".encode()).hexdigest()[:24]
+        }
+    
+    def _generate_enhanced_headers(self, device_fp: Dict[str, Any], connection_type: str) -> Dict[str, str]:
+        """Generate enhanced HTTP headers"""
+        brand = device_fp.get("brand", "Samsung")
+        
+        # Generate sec-ch-ua based on brand
+        if brand == "Samsung":
+            sec_ch_ua = '"Chromium";v="135", "Google Chrome";v="135", "Not-A.Brand";v="99"'
+        else:
+            sec_ch_ua = '"Chromium";v="135", "Google Chrome";v="135", "Not-A.Brand";v="99"'
+        
+        return {
+            "User-Agent": device_fp.get("user_agent", ""),
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+            "Accept-Language": "id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7",
+            "Accept-Encoding": "gzip, deflate, br",
+            "Cache-Control": "no-cache",
+            "Pragma": "no-cache",
+            "Sec-CH-UA": sec_ch_ua,
+            "Sec-CH-UA-Mobile": "?1" if connection_type == "mobile" else "?0",
+            "Sec-CH-UA-Platform": '"Android"',
+            "Sec-Fetch-Dest": "document",
+            "Sec-Fetch-Mode": "navigate",
+            "Sec-Fetch-Site": "none",
+            "Sec-Fetch-User": "?1",
+            "Upgrade-Insecure-Requests": "1",
+            "DNT": "1"
+        }
+    
+    def should_rotate_ip(self) -> bool:
+        """Check if IP should be rotated"""
+        return time.time() - self.last_rotation > self.rotation_interval
+    
+    def rotate_ip(self) -> Dict[str, Any]:
+        """Rotate to new IP configuration"""
+        self.current_ip = self.get_fresh_ip_config()
+        self.last_rotation = time.time()
+        return self.current_ip
+
+
+class IPValidator2025:
+    """IP Validator for 2025 with enhanced checks"""
+    
+    def validate(self, ip: str, strict: bool = True) -> Dict[str, Any]:
+        """Validate IP address"""
+        result = {
+            "valid": True,
+            "score": 100,
+            "warnings": [],
+            "errors": []
+        }
+        
+        try:
+            # Basic validation
+            ip_obj = ipaddress.ip_address(ip)
+            
+            # Check reserved
+            if ip_obj.is_private:
+                result["valid"] = False
+                result["errors"].append("Private IP")
+                result["score"] = 0
+            
+            if ip_obj.is_reserved:
+                result["valid"] = False
+                result["errors"].append("Reserved IP")
+                result["score"] = 0
+            
+            if ip_obj.is_loopback:
+                result["valid"] = False
+                result["errors"].append("Loopback IP")
+                result["score"] = 0
+            
+            # Suspicious patterns
+            parts = ip.split('.')
+            if parts[-1] in ['0', '1', '255', '254']:
+                result["warnings"].append("Suspicious last octet")
+                result["score"] -= 20
+            
+            if all(p == parts[0] for p in parts):
+                result["warnings"].append("All octets same")
+                result["score"] -= 30
+                
+        except Exception as e:
+            result["valid"] = False
+            result["errors"].append(str(e))
+            result["score"] = 0
+        
+        return result
+
+
+# ============================================================================
+# WEBRTC & WEBGL SPOOFING 2025
+# Enhanced WebRTC and WebGL spoofing with more device profiles
+# ============================================================================
+class WebRTCWebGL_Spoofing2025:
+    """Enhanced WebRTC and WebGL spoofing"""
+    
+    def __init__(self):
+        self.webrtc_configs = self._generate_webrtc_configs()
+        self.webgl_configs = self._generate_webgl_configs()
+        self.canvas_configs = self._generate_canvas_configs()
+        self.audio_configs = self._generate_audio_configs()
+        self.font_configs = self._generate_font_configs()
+        self.screen_configs = self._generate_screen_configs()
+    
+    def _generate_webrtc_configs(self) -> Dict[str, Any]:
+        """Generate WebRTC configurations"""
+        return {
+            "android_chrome_samsung": {
+                "ice_servers": [
+                    {"urls": ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"]},
+                    {"urls": "turn:turn.bistri.com:80", "username": "homeo", "credential": "homeo"}
+                ],
+                "ice_transport_policy": "all",
+                "bundle_policy": "max-bundle",
+                "rtcp_mux_policy": "require",
+                "sdp_semantics": "unified-plan",
+                "encoded_insertable_streams": True,
+                "force_codec": "VP9"
+            },
+            "android_chrome_xiaomi": {
+                "ice_servers": [
+                    {"urls": ["stun:stun.l.google.com:19302"]},
+                    {"urls": "turn:turn.anyfirewall.com:443", "username": "webrtc", "credential": "webrtc"}
+                ],
+                "ice_transport_policy": "all",
+                "bundle_policy": "max-bundle",
+                "rtcp_mux_policy": "require",
+                "sdp_semantics": "unified-plan",
+                "encoded_insertable_streams": True,
+                "force_codec": "H264"
+            },
+            "ios_safari": {
+                "ice_servers": [
+                    {"urls": ["stun:stun.l.google.com:19302"]}
+                ],
+                "ice_transport_policy": "all",
+                "bundle_policy": "max-bundle",
+                "rtcp_mux_policy": "require",
+                "sdp_semantics": "unified-plan",
+                "encoded_insertable_streams": False,
+                "force_codec": "H264"
+            }
+        }
+    
+    def _generate_webgl_configs(self) -> Dict[str, Any]:
+        """Generate WebGL configurations"""
+        return {
+            "adreno_750": {
+                "vendor": "Qualcomm",
+                "renderer": "Adreno (TM) 750",
+                "unmasked_vendor": "Qualcomm",
+                "unmasked_renderer": "Adreno (TM) 750",
+                "version": "WebGL 2.0 (OpenGL ES 3.2 Qualcomm)",
+                "shading_language": "WebGL GLSL ES 3.00",
+                "max_texture_size": 16384,
+                "max_viewport_dims": [16384, 16384],
+                "max_renderbuffer_size": 16384,
+                "max_combined_texture_image_units": 80,
+                "max_vertex_texture_image_units": 16,
+                "max_texture_image_units": 16,
+                "max_vertex_attribs": 32,
+                "max_varying_vectors": 32,
+                "max_vertex_uniform_vectors": 1024,
+                "max_fragment_uniform_vectors": 1024,
+                "aliased_line_width_range": [1, 511],
+                "aliased_point_size_range": [1, 2047]
+            },
+            "mali_g710": {
+                "vendor": "ARM",
+                "renderer": "Mali-G710 MC10",
+                "unmasked_vendor": "ARM",
+                "unmasked_renderer": "Mali-G710 MC10",
+                "version": "WebGL 2.0 (OpenGL ES 3.2 ARM)",
+                "shading_language": "WebGL GLSL ES 3.00",
+                "max_texture_size": 8192,
+                "max_viewport_dims": [8192, 8192],
+                "max_renderbuffer_size": 8192,
+                "max_combined_texture_image_units": 64,
+                "max_vertex_texture_image_units": 16,
+                "max_texture_image_units": 16,
+                "max_vertex_attribs": 16,
+                "max_varying_vectors": 16,
+                "max_vertex_uniform_vectors": 256,
+                "max_fragment_uniform_vectors": 256,
+                "aliased_line_width_range": [1, 127],
+                "aliased_point_size_range": [1, 1024]
+            },
+            "apple_gpu": {
+                "vendor": "Apple Inc.",
+                "renderer": "Apple GPU",
+                "unmasked_vendor": "Apple Inc.",
+                "unmasked_renderer": "Apple GPU",
+                "version": "WebGL 2.0 (OpenGL ES 3.0)",
+                "shading_language": "WebGL GLSL ES 3.00",
+                "max_texture_size": 16384,
+                "max_viewport_dims": [16384, 16384],
+                "max_renderbuffer_size": 16384,
+                "max_combined_texture_image_units": 80,
+                "max_vertex_texture_image_units": 16,
+                "max_texture_image_units": 16,
+                "max_vertex_attribs": 31,
+                "max_varying_vectors": 30,
+                "max_vertex_uniform_vectors": 1024,
+                "max_fragment_uniform_vectors": 1024,
+                "aliased_line_width_range": [1, 1],
+                "aliased_point_size_range": [1, 511]
+            }
+        }
+    
+    def _generate_canvas_configs(self) -> Dict[str, Any]:
+        """Generate canvas configurations"""
+        return {
+            "samsung_galaxy_s24": {
+                "width": 1440, "height": 3120, "color_depth": 24, "pixel_ratio": 3.0,
+                "font_smoothing": "subpixel-antialiased", "text_rendering": "optimizeLegibility",
+                "image_smoothing": True, "global_alpha": 1.0
+            },
+            "xiaomi_14_pro": {
+                "width": 1440, "height": 3200, "color_depth": 30, "pixel_ratio": 3.5,
+                "font_smoothing": "subpixel-antialiased", "text_rendering": "optimizeLegibility",
+                "image_smoothing": True, "global_alpha": 1.0
+            },
+            "iphone_16_pro": {
+                "width": 1170, "height": 2532, "color_depth": 30, "pixel_ratio": 3.0,
+                "font_smoothing": "subpixel-antialiased", "text_rendering": "optimizeLegibility",
+                "image_smoothing": True, "global_alpha": 1.0
+            }
+        }
+    
+    def _generate_audio_configs(self) -> Dict[str, Any]:
+        """Generate audio configurations"""
+        return {
+            "android_samsung": {
+                "sample_rate": 48000, "channel_count": 2, "buffer_size": 4096,
+                "latency": 0.01, "fft_size": 2048, "smoothing_time_constant": 0.8
+            },
+            "android_xiaomi": {
+                "sample_rate": 48000, "channel_count": 2, "buffer_size": 2048,
+                "latency": 0.02, "fft_size": 1024, "smoothing_time_constant": 0.9
+            },
+            "ios": {
+                "sample_rate": 44100, "channel_count": 2, "buffer_size": 2048,
+                "latency": 0.02, "fft_size": 1024, "smoothing_time_constant": 0.9
+            }
+        }
+    
+    def _generate_font_configs(self) -> Dict[str, Any]:
+        """Generate font configurations"""
+        return {
+            "android_samsung": {
+                "fonts": ["Roboto", "SamsungOne", "Noto Sans", "Google Sans", "Arial", "Helvetica"]
+            },
+            "android_xiaomi": {
+                "fonts": ["MiSans", "Roboto", "Noto Sans", "Google Sans", "Arial"]
+            },
+            "ios": {
+                "fonts": ["San Francisco", "Helvetica Neue", "Arial", "Times New Roman"]
+            }
+        }
+    
+    def _generate_screen_configs(self) -> Dict[str, Any]:
+        """Generate screen configurations"""
+        return {
+            "samsung_galaxy_s24": {
+                "width": 1440, "height": 3120, "avail_width": 1440, "avail_height": 3060,
+                "color_depth": 24, "pixel_depth": 24, "device_pixel_ratio": 3.0,
+                "touch_support": True, "max_touch_points": 10
+            },
+            "xiaomi_14_pro": {
+                "width": 1440, "height": 3200, "avail_width": 1440, "avail_height": 3140,
+                "color_depth": 30, "pixel_depth": 30, "device_pixel_ratio": 3.5,
+                "touch_support": True, "max_touch_points": 10
+            },
+            "iphone_16_pro": {
+                "width": 1170, "height": 2532, "avail_width": 1170, "avail_height": 2472,
+                "color_depth": 30, "pixel_depth": 30, "device_pixel_ratio": 3.0,
+                "touch_support": True, "max_touch_points": 5
+            }
+        }
+    
+    def get_complete_fingerprint(self, device_type: str = "android", brand: str = "samsung", 
+                                  connection_type: str = "mobile") -> Dict[str, Any]:
+        """Get complete spoofing fingerprint"""
+        if device_type == "ios":
+            webrtc_profile = "ios_safari"
+            webgl_profile = "apple_gpu"
+            canvas_profile = "iphone_16_pro"
+            audio_profile = "ios"
+            font_profile = "ios"
+            screen_profile = "iphone_16_pro"
+        elif brand.lower() == "xiaomi":
+            webrtc_profile = "android_chrome_xiaomi"
+            webgl_profile = "mali_g710"
+            canvas_profile = "xiaomi_14_pro"
+            audio_profile = "android_xiaomi"
+            font_profile = "android_xiaomi"
+            screen_profile = "xiaomi_14_pro"
+        else:
+            webrtc_profile = "android_chrome_samsung"
+            webgl_profile = "adreno_750"
+            canvas_profile = "samsung_galaxy_s24"
+            audio_profile = "android_samsung"
+            font_profile = "android_samsung"
+            screen_profile = "samsung_galaxy_s24"
+        
+        return {
+            "webrtc": self.webrtc_configs.get(webrtc_profile, {}),
+            "webgl": self.webgl_configs.get(webgl_profile, {}),
+            "canvas": self.canvas_configs.get(canvas_profile, {}),
+            "audio": self.audio_configs.get(audio_profile, {}),
+            "fonts": self.font_configs.get(font_profile, {}),
+            "screen": self.screen_configs.get(screen_profile, {}),
+            "device_type": device_type,
+            "brand": brand,
+            "connection_type": connection_type,
+            "timestamp": int(time.time()),
+            "fingerprint_id": f"fp_{int(time.time())}_{random.randint(1000, 9999)}",
+            "noise_factors": {
+                "canvas_noise": random.uniform(0.001, 0.005),
+                "audio_noise": random.uniform(0.0001, 0.001),
+                "timing_noise": random.uniform(0.1, 0.5)
+            }
+        }
+    
+    def get_stealth_injection_script(self, fingerprint: Dict[str, Any]) -> str:
+        """Generate JavaScript injection script for fingerprint spoofing"""
+        webgl_config = fingerprint.get("webgl", {})
+        screen_config = fingerprint.get("screen", {})
+        audio_config = fingerprint.get("audio", {})
+        noise = fingerprint.get("noise_factors", {})
+        
+        return f"""
+        // === COMPREHENSIVE FINGERPRINT SPOOFING 2025 ===
+        
+        const SPOOF_CONFIG = {{
+            webgl: {{
+                vendor: '{webgl_config.get("vendor", "Qualcomm")}',
+                renderer: '{webgl_config.get("renderer", "Adreno (TM) 750")}',
+                unmaskedVendor: '{webgl_config.get("unmasked_vendor", "Qualcomm")}',
+                unmaskedRenderer: '{webgl_config.get("unmasked_renderer", "Adreno (TM) 750")}',
+                version: '{webgl_config.get("version", "WebGL 2.0")}',
+                shadingLanguage: '{webgl_config.get("shading_language", "WebGL GLSL ES 3.00")}'
+            }},
+            screen: {{
+                width: {screen_config.get("width", 1440)},
+                height: {screen_config.get("height", 3120)},
+                availWidth: {screen_config.get("avail_width", 1440)},
+                availHeight: {screen_config.get("avail_height", 3060)},
+                colorDepth: {screen_config.get("color_depth", 24)},
+                pixelDepth: {screen_config.get("pixel_depth", 24)},
+                devicePixelRatio: {screen_config.get("device_pixel_ratio", 3.0)},
+                maxTouchPoints: {screen_config.get("max_touch_points", 10)}
+            }},
+            audio: {{
+                sampleRate: {audio_config.get("sample_rate", 48000)},
+                channelCount: {audio_config.get("channel_count", 2)}
+            }},
+            noise: {{
+                canvas: {noise.get("canvas_noise", 0.003)},
+                audio: {noise.get("audio_noise", 0.0005)}
+            }}
+        }};
+        
+        // === WEBDRIVER REMOVAL ===
+        Object.defineProperty(navigator, 'webdriver', {{
+            get: () => undefined,
+            configurable: true
+        }});
+        delete navigator.__proto__.webdriver;
+        
+        // === AUTOMATION CONTROLLED REMOVAL ===
+        Object.defineProperty(navigator, 'automationControlled', {{
+            get: () => undefined,
+            configurable: true
+        }});
+        
+        // === WEBGL SPOOFING ===
+        const spoofWebGL = (contextType) => {{
+            const originalGetParameter = contextType.prototype.getParameter;
+            contextType.prototype.getParameter = function(parameter) {{
+                if (parameter === 37445) return SPOOF_CONFIG.webgl.unmaskedVendor;
+                if (parameter === 37446) return SPOOF_CONFIG.webgl.unmaskedRenderer;
+                if (parameter === 7937) return SPOOF_CONFIG.webgl.vendor;
+                if (parameter === 7938) return SPOOF_CONFIG.webgl.renderer;
+                if (parameter === 35724) return SPOOF_CONFIG.webgl.shadingLanguage;
+                return originalGetParameter.call(this, parameter);
+            }};
+        }};
+        
+        if (typeof WebGLRenderingContext !== 'undefined') spoofWebGL(WebGLRenderingContext);
+        if (typeof WebGL2RenderingContext !== 'undefined') spoofWebGL(WebGL2RenderingContext);
+        
+        // === SCREEN SPOOFING ===
+        const screenProps = ['width', 'height', 'availWidth', 'availHeight', 'colorDepth', 'pixelDepth'];
+        screenProps.forEach(prop => {{
+            const configKey = prop;
+            if (SPOOF_CONFIG.screen[configKey] !== undefined) {{
+                Object.defineProperty(screen, prop, {{
+                    get: () => SPOOF_CONFIG.screen[configKey],
+                    configurable: true
+                }});
+            }}
+        }});
+        
+        Object.defineProperty(window, 'devicePixelRatio', {{
+            get: () => SPOOF_CONFIG.screen.devicePixelRatio,
+            configurable: true
+        }});
+        
+        Object.defineProperty(navigator, 'maxTouchPoints', {{
+            get: () => SPOOF_CONFIG.screen.maxTouchPoints,
+            configurable: true
+        }});
+        
+        // === CANVAS FINGERPRINT PROTECTION ===
+        const originalToDataURL = HTMLCanvasElement.prototype.toDataURL;
+        HTMLCanvasElement.prototype.toDataURL = function(type, quality) {{
+            const ctx = this.getContext('2d');
+            if (ctx && this.width > 0 && this.height > 0) {{
+                try {{
+                    const imageData = ctx.getImageData(0, 0, this.width, this.height);
+                    for (let i = 0; i < imageData.data.length; i += 100) {{
+                        imageData.data[i] = Math.max(0, Math.min(255, 
+                            imageData.data[i] + Math.floor((Math.random() - 0.5) * SPOOF_CONFIG.noise.canvas * 100)));
+                    }}
+                    ctx.putImageData(imageData, 0, 0);
+                }} catch(e) {{}}
+            }}
+            return originalToDataURL.call(this, type, quality);
+        }};
+        
+        const originalGetImageData = CanvasRenderingContext2D.prototype.getImageData;
+        CanvasRenderingContext2D.prototype.getImageData = function() {{
+            const imageData = originalGetImageData.apply(this, arguments);
+            for (let i = 0; i < imageData.data.length; i += 100) {{
+                imageData.data[i] = Math.max(0, Math.min(255,
+                    imageData.data[i] + Math.floor((Math.random() - 0.5) * SPOOF_CONFIG.noise.canvas * 100)));
+            }}
+            return imageData;
+        }};
+        
+        // === AUDIO FINGERPRINT PROTECTION ===
+        if (typeof AudioBuffer !== 'undefined') {{
+            const originalGetChannelData = AudioBuffer.prototype.getChannelData;
+            AudioBuffer.prototype.getChannelData = function() {{
+                const data = originalGetChannelData.apply(this, arguments);
+                for (let i = 0; i < data.length; i += 100) {{
+                    data[i] += (Math.random() - 0.5) * SPOOF_CONFIG.noise.audio;
+                }}
+                return data;
+            }};
+        }}
+        
+        // === WEBRTC IP LEAK PROTECTION ===
+        if (typeof RTCPeerConnection !== 'undefined') {{
+            const originalRTCPeerConnection = window.RTCPeerConnection;
+            window.RTCPeerConnection = function(config) {{
+                if (config && config.iceServers) {{
+                    config.iceServers = config.iceServers.filter(server => 
+                        !server.urls || !server.urls.toString().includes('stun.l.google.com'));
+                }}
+                return new originalRTCPeerConnection(config);
+            }};
+            window.RTCPeerConnection.prototype = originalRTCPeerConnection.prototype;
+        }}
+        
+        // Disable WebRTC candidates leak
+        if (typeof RTCPeerConnection !== 'undefined') {{
+            const originalAddEventListener = RTCPeerConnection.prototype.addEventListener;
+            RTCPeerConnection.prototype.addEventListener = function(type, listener, options) {{
+                if (type === 'icecandidate') {{
+                    const wrappedListener = function(event) {{
+                        if (event.candidate && event.candidate.candidate) {{
+                            // Filter out local IP candidates
+                            if (event.candidate.candidate.includes('typ host')) {{
+                                return;
+                            }}
+                        }}
+                        listener.call(this, event);
+                    }};
+                    return originalAddEventListener.call(this, type, wrappedListener, options);
+                }}
+                return originalAddEventListener.call(this, type, listener, options);
+            }};
+        }}
+        
+        // === CHROME RUNTIME MOCK ===
+        window.chrome = {{
+            runtime: {{
+                id: undefined,
+                connect: () => ({{}}),
+                sendMessage: () => {{}},
+                onMessage: {{ addListener: () => {{}} }}
+            }},
+            loadTimes: () => ({{}}),
+            csi: () => ({{}})
+        }};
+        
+        // === PERMISSIONS API OVERRIDE ===
+        const originalQuery = navigator.permissions.query;
+        navigator.permissions.query = (parameters) => {{
+            if (parameters.name === 'notifications') return Promise.resolve({{ state: 'denied' }});
+            if (parameters.name === 'geolocation') return Promise.resolve({{ state: 'prompt' }});
+            if (parameters.name === 'camera') return Promise.resolve({{ state: 'prompt' }});
+            if (parameters.name === 'microphone') return Promise.resolve({{ state: 'prompt' }});
+            return originalQuery.call(navigator.permissions, parameters);
+        }};
+        
+        // === PLUGINS MOCK ===
+        Object.defineProperty(navigator, 'plugins', {{
+            get: () => {{
+                const plugins = [
+                    {{ name: 'Chrome PDF Plugin', filename: 'internal-pdf-viewer', description: 'Portable Document Format' }},
+                    {{ name: 'Chrome PDF Viewer', filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai', description: '' }},
+                    {{ name: 'Native Client', filename: 'internal-nacl-plugin', description: '' }}
+                ];
+                plugins.length = 3;
+                return plugins;
+            }},
+            configurable: true
+        }});
+        
+        // === BATTERY API DISABLE ===
+        if (navigator.getBattery) {{
+            navigator.getBattery = undefined;
+        }}
+        
+        console.log('🛡️ Comprehensive Fingerprint Spoofing 2025 Active');
+        """
+
+
+# Global instances
+IP_STEALTH_SYSTEM = AdvancedIPStealthSystem2025()
+WEBRTC_WEBGL_SPOOFER = WebRTCWebGL_Spoofing2025()
 
 # ============================================================================
 # DYNAMIC FINGERPRINT GENERATOR - Fully Synchronized
@@ -1322,45 +2195,63 @@ class ChromiumManager:
             return None
 
     async def _add_stealth_scripts(self, context: BrowserContext):
-        """Add enhanced stealth scripts to context"""
-        stealth_script = """
-        // Remove webdriver property
-        Object.defineProperty(navigator, 'webdriver', {
-            get: () => undefined,
-        });
+        """Add enhanced stealth scripts to context with comprehensive fingerprint spoofing"""
+        try:
+            # Get IP configuration with comprehensive spoofing data
+            ip_config = IP_STEALTH_SYSTEM.get_fresh_ip_config()
+            device_fp = ip_config.get("device_fingerprint", {})
+            
+            # Get WebRTC/WebGL fingerprint
+            brand = device_fp.get("brand", "Samsung").lower()
+            device_type = "android"
+            connection_type = ip_config.get("connection_type", "mobile")
+            webrtc_webgl_fp = WEBRTC_WEBGL_SPOOFER.get_complete_fingerprint(device_type, brand, connection_type)
+            
+            # Add comprehensive stealth injection script
+            comprehensive_script = WEBRTC_WEBGL_SPOOFER.get_stealth_injection_script(webrtc_webgl_fp)
+            await context.add_init_script(comprehensive_script)
+            
+            print(f"🛡️ [ChromiumManager] Comprehensive fingerprint spoofing applied")
+        except Exception as e:
+            # Fallback to basic stealth script
+            stealth_script = """
+            // Remove webdriver property
+            Object.defineProperty(navigator, 'webdriver', {
+                get: () => undefined,
+            });
 
-        // Remove automation controlled
-        Object.defineProperty(navigator, 'automationControlled', {
-            get: () => undefined,
-        });
+            // Remove automation controlled
+            Object.defineProperty(navigator, 'automationControlled', {
+                get: () => undefined,
+            });
 
-        // Mock permissions
-        const originalQuery = window.navigator.permissions.query;
-        window.navigator.permissions.query = (parameters) => (
-            parameters.name === 'notifications' ?
-                Promise.resolve({ state: Notification.permission }) :
-                originalQuery(parameters)
-        );
+            // Mock permissions
+            const originalQuery = window.navigator.permissions.query;
+            window.navigator.permissions.query = (parameters) => (
+                parameters.name === 'notifications' ?
+                    Promise.resolve({ state: Notification.permission }) :
+                    originalQuery(parameters)
+            );
 
-        // Mock plugins
-        Object.defineProperty(navigator, 'plugins', {
-            get: () => [1, 2, 3, 4, 5],
-        });
+            // Mock plugins
+            Object.defineProperty(navigator, 'plugins', {
+                get: () => [1, 2, 3, 4, 5],
+            });
 
-        // Mock languages
-        Object.defineProperty(navigator, 'languages', {
-            get: () => ['en-US', 'en'],
-        });
+            // Mock languages
+            Object.defineProperty(navigator, 'languages', {
+                get: () => ['en-US', 'en'],
+            });
 
-        // Mock hardware concurrency
-        Object.defineProperty(navigator, 'hardwareConcurrency', {
-            get: () => 8,
-        });
+            // Mock hardware concurrency
+            Object.defineProperty(navigator, 'hardwareConcurrency', {
+                get: () => 8,
+            });
 
-        console.log('Stealth mode activated');
-        """
-        
-        await context.add_init_script(stealth_script)
+            console.log('Stealth mode activated');
+            """
+            
+            await context.add_init_script(stealth_script)
 
     async def new_browser_context(self, user_agent: Optional[str] = None,
                                  viewport: Optional[Dict[str, int]] = None,
@@ -2324,22 +3215,37 @@ class UltimateChromiumManager:
             return None
 
     async def _apply_ultimate_stealth(self, context: BrowserContext):
-        """Apply ultimate stealth scripts dan protections"""
+        """Apply ultimate stealth scripts dan protections with comprehensive fingerprint spoofing"""
         try:
+            # Get IP configuration with comprehensive spoofing data
+            ip_config = IP_STEALTH_SYSTEM.get_fresh_ip_config()
+            device_fp = ip_config.get("device_fingerprint", {})
+            
+            # Get WebRTC/WebGL fingerprint
+            brand = device_fp.get("brand", "Samsung").lower()
+            device_type = "android"  # or ios based on brand
+            connection_type = ip_config.get("connection_type", "mobile")
+            webrtc_webgl_fp = WEBRTC_WEBGL_SPOOFER.get_complete_fingerprint(device_type, brand, connection_type)
+            
+            # Add comprehensive stealth injection script
+            comprehensive_script = WEBRTC_WEBGL_SPOOFER.get_stealth_injection_script(webrtc_webgl_fp)
+            await context.add_init_script(comprehensive_script)
+            
             # Add main stealth script
             stealth_script = self._get_ultimate_stealth_script()
             await context.add_init_script(stealth_script)
             
-            # Set realistic headers
+            # Set realistic headers from IP config
+            headers = ip_config.get("headers", {})
             await context.set_extra_http_headers({
                 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
-                'Accept-Language': 'en-US,en;q=0.9',
+                'Accept-Language': headers.get('Accept-Language', 'id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7'),
                 'Accept-Encoding': 'gzip, deflate, br',
                 'Cache-Control': 'no-cache',
                 'DNT': '1',
-                'Sec-CH-UA': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
-                'Sec-CH-UA-Mobile': '?0',
-                'Sec-CH-UA-Platform': '"Windows"',
+                'Sec-CH-UA': headers.get('Sec-CH-UA', '"Chromium";v="135", "Google Chrome";v="135", "Not-A.Brand";v="99"'),
+                'Sec-CH-UA-Mobile': headers.get('Sec-CH-UA-Mobile', '?1'),
+                'Sec-CH-UA-Platform': headers.get('Sec-CH-UA-Platform', '"Android"'),
                 'Sec-Fetch-Dest': 'document',
                 'Sec-Fetch-Mode': 'navigate',
                 'Sec-Fetch-Site': 'none',
@@ -2350,6 +3256,12 @@ class UltimateChromiumManager:
             # Configure timeouts untuk realism
             context.set_default_timeout(45000)
             context.set_default_navigation_timeout(60000)
+            
+            if self._verbose:
+                print(f"🛡️ [UltimateChromiumManager] Comprehensive fingerprint spoofing applied")
+                print(f"   📍 IP: {ip_config.get('ip')} ({ip_config.get('isp')})")
+                print(f"   📱 Device: {device_fp.get('market_name', 'Unknown')}")
+                print(f"   🔗 Connection: {connection_type}")
             
         except Exception as e:
             logger.debug(f"Stealth application warning: {e}")
@@ -5714,12 +6626,89 @@ class Account:
         self.challenge_count = 0
         self.current_bypass_strategy_index = 0
 
+        # ========== ADVANCED IP STEALTH SYSTEM 2025 ==========
+        self.ip_stealth_system = IP_STEALTH_SYSTEM
+        self.webrtc_webgl_spoofer = WEBRTC_WEBGL_SPOOFER
+        self.current_ip_config: Optional[Dict[str, Any]] = None
+        self.ip_rotation_count: int = 0
+        self.last_ip_rotation: float = 0
+        self.ip_rotation_interval: int = 300  # 5 minutes
+
         if verbose:
             print("[Account] ✅ Initialized COMPLETE with ENHANCED SECURITY")
             print("[Account] - UltraBoostedV13: ON")
             print("[Account] - Chromium: %s", "ON" if use_chromium else "OFF")
             print("[Account] - Enhanced Security: ON")
             print("[Account] - Anti-Checkpoint Level: %d", anti_checkpoint_level)
+            print("[Account] - IP Stealth System 2025: ON")
+            print("[Account] - WebRTC/WebGL Spoofing: ON")
+
+    # ============================================================================
+    # IP STEALTH & FINGERPRINT MANAGEMENT
+    # ============================================================================
+
+    def get_fresh_identity(self) -> Dict[str, Any]:
+        """Get fresh IP and fingerprint identity for rate limit evasion"""
+        # Rotate IP
+        ip_config = self.ip_stealth_system.get_fresh_ip_config()
+        self.current_ip_config = ip_config
+        self.ip_rotation_count += 1
+        self.last_ip_rotation = time.time()
+        
+        # Get device info
+        device_fp = ip_config.get("device_fingerprint", {})
+        brand = device_fp.get("brand", "Samsung").lower()
+        connection_type = ip_config.get("connection_type", "mobile")
+        
+        # Get WebRTC/WebGL fingerprint
+        webrtc_webgl_fp = self.webrtc_webgl_spoofer.get_complete_fingerprint("android", brand, connection_type)
+        
+        identity = {
+            "ip_config": ip_config,
+            "webrtc_webgl_fingerprint": webrtc_webgl_fp,
+            "stealth_script": self.webrtc_webgl_spoofer.get_stealth_injection_script(webrtc_webgl_fp),
+            "headers": ip_config.get("headers", {}),
+            "user_agent": device_fp.get("user_agent", ""),
+            "ja3": ip_config.get("fingerprints", {}).get("ja3", ""),
+            "rotation_count": self.ip_rotation_count,
+            "timestamp": int(time.time())
+        }
+        
+        if self.verbose:
+            print(f"🔄 [Account] Fresh identity generated:")
+            print(f"   📍 IP: {ip_config.get('ip')} ({ip_config.get('isp')})")
+            print(f"   📱 Device: {device_fp.get('market_name', 'Unknown')}")
+            print(f"   🔗 Connection: {connection_type}")
+            print(f"   🔢 Rotation: #{self.ip_rotation_count}")
+        
+        return identity
+
+    def should_rotate_identity(self) -> bool:
+        """Check if identity should be rotated for rate limit evasion"""
+        if self.current_ip_config is None:
+            return True
+        return time.time() - self.last_ip_rotation > self.ip_rotation_interval
+
+    async def apply_identity_to_context(self, context, identity: Dict[str, Any] = None) -> bool:
+        """Apply identity (IP/fingerprint) to browser context"""
+        try:
+            if identity is None:
+                identity = self.get_fresh_identity()
+            
+            # Add stealth script
+            stealth_script = identity.get("stealth_script", "")
+            if stealth_script:
+                await context.add_init_script(stealth_script)
+            
+            # Set headers
+            headers = identity.get("headers", {})
+            if headers:
+                await context.set_extra_http_headers(headers)
+            
+            return True
+        except Exception as e:
+            logger.error(f"[Account] Failed to apply identity: {e}")
+            return False
 
     # ============================================================================
     # UTILITY METHODS
@@ -7411,15 +8400,31 @@ class Account:
                         
                         # Check if we need to close session (OTP not received)
                         if self.status == 7:
-                            print("   🚫 OTP code not received - closing session for new attempt")
-                            print("   ⏹️ Session will be closed, please start a new session")
-                            break  # Exit the retry loop - need new session
+                            print("   🚫 OTP code not received - IMMEDIATELY closing session")
+                            print("   ⏹️ Session closed. Please start a new session with fresh fingerprint/IP")
+                            # Immediately close session and return - no retry with same session
+                            try:
+                                if page:
+                                    await page.close()
+                                await self.stop_chromium()
+                                await self._cleanup_chromium_profiles()
+                            except:
+                                pass
+                            return self._return_data()
                         
                         # Check if phone verification required - close session
                         if self.status == 6:
-                            print("   📱 Phone verification required - closing session")
-                            print("   ⏹️ Session will be closed, please start a new session")
-                            break  # Exit the retry loop - need new session
+                            print("   📱 Phone verification required - IMMEDIATELY closing session")
+                            print("   ⏹️ Session closed. Please start a new session with different identity")
+                            # Immediately close session and return - need different approach
+                            try:
+                                if page:
+                                    await page.close()
+                                await self.stop_chromium()
+                                await self._cleanup_chromium_profiles()
+                            except:
+                                pass
+                            return self._return_data()
                         
                         if otp_attempt < max_otp_retries:
                             print("   🔄 Preparing for OTP retry with new email...")
