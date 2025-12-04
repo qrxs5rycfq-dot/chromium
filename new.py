@@ -11810,11 +11810,8 @@ class Account:
             else:
                 print("[OTP] ⏳ No OTP yet from Sepuluh...")
         
-        if attempt < max_retries - 1:
-            print("[OTP] ⏳ Waiting %d seconds for email...", retry_delay)
-            await asyncio.sleep(retry_delay)
-        
-        print("[OTP] 🆘 All auto attempts failed")
+        # If no OTP obtained, prompt for manual entry
+        print("[OTP] 🆘 Auto OTP retrieval failed")
         print("[OTP] 📱 Please check email: %s", email)
         otp_code = input("    Enter OTP code manually (or press Enter to skip): ").strip()
         return otp_code if otp_code else None
