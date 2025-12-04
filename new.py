@@ -2565,6 +2565,11 @@ class ChromiumManager:
                 context_options["locale"] = locale
                 context_options["timezone_id"] = timezone
                 
+                # Force desktop mode - prevent mobile Instagram UI
+                context_options["is_mobile"] = False
+                context_options["has_touch"] = False
+                context_options["device_scale_factor"] = 1
+                
                 # Create context
                 context = await self._browser.new_context(**context_options)
                 
@@ -8434,11 +8439,13 @@ class Account:
             # Get synchronized user agent from identity - ALWAYS use identity UA, never fallback
             user_agent = identity.get("user_agent") or device_fp.get("user_agent")
             if not user_agent:
-                # Generate a random mobile user agent if none provided
-                android_versions = ["12", "13", "14"]
-                chrome_versions = ["120", "121", "122", "123", "124", "125"]
-                models = ["SM-G998B", "SM-S908B", "Pixel 7 Pro", "Pixel 8", "POCO F5", "Redmi Note 12"]
-                user_agent = f"Mozilla/5.0 (Linux; Android {random.choice(android_versions)}; {random.choice(models)}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{random.choice(chrome_versions)}.0.0.0 Mobile Safari/537.36"
+                # Generate a DESKTOP Chrome user agent - NEVER use mobile/Android
+                chrome_versions = ["118", "119", "120", "121", "122"]
+                # Randomly choose between Windows and macOS
+                if random.random() > 0.5:
+                    user_agent = f"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{random.choice(chrome_versions)}.0.0.0 Safari/537.36"
+                else:
+                    user_agent = f"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{random.choice(chrome_versions)}.0.0.0 Safari/537.36"
             
             # IMPORTANT: Always use DESKTOP viewport to avoid mobile signup flow (phone verification)
             # Instagram's mobile view often redirects to /accounts/signup/phone/
