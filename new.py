@@ -93,12 +93,16 @@ warnings.filterwarnings("ignore", category=RuntimeWarning,
 # ============================================================================
 FIELD_PATTERNS = {
     # Priority 1: Standard form fields (checked first for input elements)
+    # Multi-language: English, Indonesian, Spanish, French, German
     'email': ['email', 'phone', 'mobile', 'emailorphone', 'email or phone', 'email address', 
-              'phone number', 'email atau telepon', 'correo electrónico', 'e-mail'],
-    'password': ['password', 'kata sandi', 'contraseña', 'mot de passe', 'passwort', 'sandi'],
+              'phone number', 'email atau telepon', 'nomor telepon', 'nomor ponsel', 'hp',
+              'correo electrónico', 'e-mail', 'alamat email'],
+    'password': ['password', 'kata sandi', 'sandi', 'contraseña', 'mot de passe', 'passwort',
+                 'konfirmasi kata sandi', 'ulangi kata sandi', 'new password', 'kata kunci'],
     'username': ['username', 'nama pengguna', 'usuario', 'nom d\'utilisateur', 'benutzername', 
-                 'user name'],
-    'fullname': ['full name', 'nama lengkap', 'nombre completo', 'nom complet', 'vollständiger name'],
+                 'user name', 'nama user', 'pengguna', 'akun'],
+    'fullname': ['full name', 'nama lengkap', 'nombre completo', 'nom complet', 'vollständiger name',
+                 'nama', 'your name', 'namamu'],
 }
 
 # Birthday field patterns - only checked for select/combobox elements
@@ -15164,6 +15168,7 @@ class Account:
             loading_selectors = [
                 '[role="progressbar"]',
                 'svg[aria-label*="Loading"]',
+                'svg[aria-label*="Memuat"]',  # Indonesian
                 '[class*="spinner"]',
                 '[class*="loading"]',
                 'circle[stroke-dasharray]',  # SVG loading spinner
@@ -15180,10 +15185,11 @@ class Account:
                 except Exception:
                     pass
             
-            # Now wait for form elements to appear
+            # Now wait for form elements to appear - MULTI-LANGUAGE support
             while (asyncio.get_event_loop().time() - start_time) < timeout:
-                # Check for form elements - these indicate the page is ready for interaction
+                # Check for form elements in English AND Indonesian
                 form_indicators = [
+                    # English
                     'input[name="emailOrPhone"]',
                     'input[name="email"]',
                     'input[name="password"]',
@@ -15192,8 +15198,25 @@ class Account:
                     'input[placeholder*="email" i]',
                     'input[placeholder*="phone" i]',
                     'input[placeholder*="Mobile" i]',
+                    'input[placeholder*="Password" i]',
+                    # Indonesian
+                    'input[placeholder*="Nomor" i]',  # Nomor telepon
+                    'input[placeholder*="telepon" i]',
+                    'input[placeholder*="Kata sandi" i]',  # Password
+                    'input[placeholder*="Nama lengkap" i]',  # Full name
+                    'input[placeholder*="Nama pengguna" i]',  # Username
+                    'input[aria-label*="Nomor" i]',
+                    'input[aria-label*="telepon" i]',
+                    'input[aria-label*="Kata sandi" i]',
+                    # Buttons - English
                     'button:has-text("Sign up")',
                     'button:has-text("Next")',
+                    'button:has-text("Log in")',
+                    # Buttons - Indonesian
+                    'button:has-text("Daftar")',
+                    'button:has-text("Berikutnya")',
+                    'button:has-text("Masuk")',
+                    'button:has-text("Lanjutkan")',
                     'button[type="submit"]',
                 ]
                 
